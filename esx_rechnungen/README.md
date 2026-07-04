@@ -30,7 +30,29 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Billing-Dashbo
    ensure esx_rechnungen
    ```
 3. Server starten – SQL wird automatisch importiert
-4. Jobs im Adminpanel freischalten
+4. Jobs im Adminpanel feinjustieren (optional, wenn `Config.InvoiceJobs = false`)
+
+### Job-Berechtigungen (`config.lua`)
+
+Standardmäßig dürfen **alle Jobs** (außer `unemployed`) Rechnungen ausstellen:
+
+```lua
+Config.InvoiceJobs = true   -- Standard
+```
+
+Strikter Modus – nur manuell freigeschaltete Jobs:
+
+```lua
+Config.InvoiceJobs = false  -- nur über Adminpanel → Jobs
+```
+
+Nur bestimmte Jobs:
+
+```lua
+Config.InvoiceJobs = { 'police', 'ambulance', 'mechanic' }
+```
+
+Wenn es trotzdem nicht geht: Adminpanel → Jobs → deinen Job wählen → **„Rechnungen schreiben“** aktivieren.
 
 ## Commands
 

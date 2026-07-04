@@ -4,7 +4,7 @@ game 'gta5'
 name 'esx_rechnungen'
 author 'ESX Rechnungssystem'
 description 'Deutsches Rechnungssystem für ESX Legacy mit Custom-Menü und Steuersystem'
-version '2.4.0'
+version '2.4.1'
 
 lua54 'yes'
 

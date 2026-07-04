@@ -275,11 +275,76 @@ local function GetGlobalSetting(key, default)
     return val
 end
 
---- Holt Job-Einstellungen (mit Defaults)
+--- Prüft ob Job-Einstellungen Rechnungen erlauben
+---@param jobSettings table|nil
+---@return boolean
+local function CanJobIssueInvoices(jobSettings)
+    if not jobSettings then return false end
+    local v = jobSettings.can_issue
+    return v == 1 or v == true or v == '1' or v == 'true'
+end
+
+--- Prüft ob ein Job per Config Rechnungen ausstellen darf (Fallback ohne DB-Eintrag)
+---@param jobName string
+---@return boolean
+local function IsJobAllowedByConfig(jobName)
+    if not jobName or jobName == '' or jobName == 'unemployed' then
+        return false
+    end
+
+    local rule = Config.InvoiceJobs
+    if rule == true then
+        return true
+    end
+    if rule == false or rule == nil then
+        return false
+    end
+    if type(rule) == 'table' then
+        for _, name in ipairs(rule) do
+            if name == jobName then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+--- Baut Standard-Job-Einstellungen aus der Config
+---@param jobName string
+---@return table
+local function BuildDefaultJobSettings(jobName)
+    local defaults = Config.DefaultJobPermissions or {}
+    return {
+        job_name = jobName,
+        can_issue = defaults.can_issue ~= nil and defaults.can_issue or 1,
+        can_issue_player = defaults.can_issue_player ~= nil and defaults.can_issue_player or 1,
+        can_issue_society = defaults.can_issue_society ~= nil and defaults.can_issue_society or 0,
+        max_amount = defaults.max_amount or 10000,
+        require_proximity = defaults.require_proximity ~= nil and defaults.require_proximity or 1,
+        max_distance = defaults.max_distance or 5.0,
+        payment_bank = defaults.payment_bank ~= nil and defaults.payment_bank or 1,
+        payment_cash = defaults.payment_cash ~= nil and defaults.payment_cash or 1,
+        money_destination = defaults.money_destination or 'society',
+        society_percent = defaults.society_percent or 70,
+        employee_percent = defaults.employee_percent or 30,
+        tax_rate = defaults.tax_rate or 19.0,
+        _from_config = true
+    }
+end
+
+--- Holt Job-Einstellungen (DB zuerst, sonst Config-Fallback)
 ---@param jobName string
 ---@return table|nil
 local function GetJobSettings(jobName)
-    return JobSettings[jobName]
+    if JobSettings[jobName] then
+        return JobSettings[jobName]
+    end
+
+    if IsJobAllowedByConfig(jobName) then
+        return BuildDefaultJobSettings(jobName)
+    end
+
+    return nil
 end
 
 --- Berechnet Steuerbeträge
@@ -665,8 +730,14 @@ ESX.RegisterServerCallback('esx_rechnungen:canCreateInvoice', function(source, c
     local job = xPlayer.getJob()
     local jobSettings = GetJobSettings(job.name)
 
-    if not jobSettings or not jobSettings.can_issue or jobSettings.can_issue == 0 then
-        cb(false, 'Dein Job darf keine Rechnungen ausstellen.')
+    if not CanJobIssueInvoices(jobSettings) then
+        local hint = ('Dein Job "%s" (%s) ist nicht freigeschaltet.'):format(job.label or job.name, job.name)
+        if Config.InvoiceJobs == false then
+            hint = hint .. ' Ein Admin muss ihn im Rechnungs-Adminpanel unter Jobs aktivieren.'
+        else
+            hint = hint .. ' Bitte einen Admin kontaktieren oder Config.InvoiceJobs prüfen.'
+        end
+        cb(false, hint)
         return
     end
 
@@ -749,8 +820,8 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     local job = xPlayer.getJob()
     local jobSettings = GetJobSettings(job.name)
 
-    if not jobSettings or not jobSettings.can_issue or jobSettings.can_issue == 0 then
-        Notify(source, 'Dein Job darf keine Rechnungen ausstellen.', 'error')
+    if not CanJobIssueInvoices(jobSettings) then
+        Notify(source, ('Dein Job "%s" darf keine Rechnungen ausstellen.'):format(job.label or job.name), 'error')
         return
     end
 
@@ -1133,7 +1204,7 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
     local canCreate = false
     local createData = nil
     local jobSettings = GetJobSettings(job.name)
-    if jobSettings and jobSettings.can_issue == 1 then
+    if CanJobIssueInvoices(jobSettings) then
         canCreate = true
         createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name], templates = GetDefaultTemplates() }
     end
