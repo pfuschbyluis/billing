@@ -429,8 +429,28 @@
     <!-- Toast-Benachrichtigungen -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="js/icons.js"></script>
-    <script src="js/dialogs.js"></script>
-    <script src="js/app.js"></script>
+    <!-- Scripts: nui:// Pfad für zuverlässiges Laden in FiveM -->
+    <script>
+        (function loadScripts(index) {
+            var resourceName = (typeof GetParentResourceName === 'function')
+                ? GetParentResourceName()
+                : 'esx_rechnungen';
+            var files = ['js/icons.js', 'js/dialogs.js', 'js/app.js'];
+
+            if (index >= files.length) {
+                if (typeof injectIcons === 'function') injectIcons();
+                return;
+            }
+
+            var script = document.createElement('script');
+            script.src = 'nui://' + resourceName + '/html/' + files[index];
+            script.onload = function() { loadScripts(index + 1); };
+            script.onerror = function() {
+                console.error('[esx_rechnungen] Script konnte nicht geladen werden: ' + files[index]);
+                loadScripts(index + 1);
+            };
+            document.body.appendChild(script);
+        })(0);
+    </script>
 </body>
 </html>

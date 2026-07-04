@@ -25,23 +25,10 @@ let selectedInvoice = null;
 /**
  * Rendert alle data-icon Elemente im DOM
  */
-function injectIcons() {
-    document.querySelectorAll('[data-icon]').forEach(el => {
-        const name = el.getAttribute('data-icon');
-        const size = parseInt(el.getAttribute('data-size') || '18', 10);
-        el.innerHTML = icon(name, size);
-    });
-
-    // Header-Logo
-    const headerLogo = document.getElementById('header-logo');
-    if (headerLogo) {
-        headerLogo.innerHTML = icon('receipt', 22);
+function refreshIcons(root) {
+    if (typeof injectIcons === 'function') {
+        injectIcons(root || document);
     }
-
-    // Close-Buttons
-    document.querySelectorAll('.btn-close').forEach(btn => {
-        btn.innerHTML = icon('x', 16);
-    });
 }
 
 // ============================================================
@@ -52,7 +39,11 @@ function injectIcons() {
  * Sendet eine Nachricht an den FiveM-Client
  */
 function nuiFetch(event, data = {}) {
-    return fetch(`https://esx_rechnungen/${event}`, {
+    const resourceName = (typeof GetParentResourceName === 'function')
+        ? GetParentResourceName()
+        : 'esx_rechnungen';
+
+    return fetch('https://' + resourceName + '/' + event, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
@@ -227,10 +218,12 @@ function renderPlayerInvoices() {
 
     if (!filtered || filtered.length === 0) {
         container.innerHTML = renderEmptyState('Keine Rechnungen vorhanden.');
+        refreshIcons(container);
         return;
     }
 
     container.innerHTML = filtered.map(inv => renderInvoiceCard(inv, 'showPlayerInvoiceDetail')).join('');
+    refreshIcons(container);
 }
 
 function showPlayerInvoiceDetail(invoiceId) {
@@ -439,10 +432,12 @@ function renderAdminInvoices(invoices) {
 
     if (!invoices || invoices.length === 0) {
         container.innerHTML = renderEmptyState('Keine Rechnungen gefunden.');
+        refreshIcons(container);
         return;
     }
 
     container.innerHTML = invoices.map(inv => renderInvoiceCard(inv, 'showAdminInvoiceDetail')).join('');
+    refreshIcons(container);
 }
 
 function showAdminInvoiceDetail(invoiceId) {
@@ -521,6 +516,7 @@ function showInvoiceDetailModal(inv, mode) {
     }
 
     document.getElementById('modal-invoice').classList.remove('hidden');
+    refreshIcons(document.getElementById('modal-invoice-actions'));
 }
 
 function closeModal() {
@@ -797,8 +793,7 @@ async function saveGlobalSettings() {
     showToast('Globale Einstellungen gespeichert.', 'success');
 }
 
-// Initial Icons beim Laden
-document.addEventListener('DOMContentLoaded', injectIcons);
+// Icons nach dynamischem Laden (wird von icons.js beim Start aufgerufen)
 
 // ESC-Taste (Dialoge zuerst schließen)
 document.addEventListener('keydown', (e) => {

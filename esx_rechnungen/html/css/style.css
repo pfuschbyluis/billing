@@ -46,10 +46,39 @@ body {
 .hidden { display: none !important; }
 
 .icon {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     vertical-align: middle;
     flex-shrink: 0;
+    color: inherit;
 }
+
+.icon svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.sidebar-icon,
+.section-icon,
+.btn-icon,
+.search-icon,
+.stat-icon,
+.empty-icon,
+.toast-icon,
+.dialog-icon-wrap {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: inherit;
+}
+
+.sidebar-icon { width: 18px; height: 18px; }
+.section-icon { color: var(--accent); }
+.search-icon { width: 16px; height: 16px; }
+.btn-icon { width: 16px; height: 16px; }
+.invoice-number { display: inline-flex; align-items: center; gap: 6px; }
 
 /* App */
 #app {
