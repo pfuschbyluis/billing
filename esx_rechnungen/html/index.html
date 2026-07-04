@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rechnungssystem</title>
+    <link rel="stylesheet" href="css/billing.css">
+    <link rel="stylesheet" href="css/invoice-form.css">
+</head>
+<body>
+    <div id="billing-root" class="hidden">
+        <div class="billing-panel" id="billing-panel">
+            <aside class="billing-sidebar" id="billing-sidebar">
+                <div class="sidebar-profile">
+                    <div class="sidebar-avatar" id="sidebar-avatar">R</div>
+                    <div class="sidebar-profile-text">
+                        <div class="sidebar-name" id="billing-player-name">Spieler</div>
+                        <div class="sidebar-account">
+                            <span class="online-dot"></span>
+                            Persönliches Konto
+                        </div>
+                    </div>
+                </div>
+
+                <nav class="sidebar-nav" id="sidebar-nav">
+                    <button class="sidebar-item active" data-tab="dashboard" type="button">
+                        <span class="sidebar-icon" data-icon="list"></span>
+                        Dashboard
+                    </button>
+                    <button class="sidebar-item" data-tab="received" type="button">
+                        <span class="sidebar-icon" data-icon="inbox"></span>
+                        Empfangen
+                        <span class="nav-badge hidden" id="badge-received">0</span>
+                    </button>
+                    <button class="sidebar-item" data-tab="sent" type="button">
+                        <span class="sidebar-icon" data-icon="receipt"></span>
+                        Gesendet
+                    </button>
+                    <button class="sidebar-item" data-tab="statistics" type="button">
+                        <span class="sidebar-icon" data-icon="hash"></span>
+                        Statistik
+                    </button>
+                    <button class="sidebar-item" data-tab="templates" type="button">
+                        <span class="sidebar-icon" data-icon="file-text"></span>
+                        Vorlagen
+                    </button>
+                    <button class="sidebar-item" data-tab="create" type="button" id="nav-create">
+                        <span class="sidebar-icon" data-icon="plus"></span>
+                        Rechnung erstellen
+                    </button>
+                    <button class="sidebar-item hidden" data-tab="admin" type="button" id="nav-admin">
+                        <span class="sidebar-icon" data-icon="shield"></span>
+                        Admin
+                    </button>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <button class="sidebar-esc" id="btn-close" type="button">ESC · Schließen</button>
+                </div>
+            </aside>
+
+            <main class="billing-main" id="billing-main">
+                <div class="billing-body" id="billing-body"></div>
+            </main>
+        </div>
+    </div>
+
+    <div id="detail-modal" class="detail-modal hidden">
+        <div class="detail-modal-box">
+            <header class="detail-modal-header">
+                <div>
+                    <h2 id="detail-title">Rechnung</h2>
+                    <span id="detail-badge" class="status-badge"></span>
+                </div>
+                <button class="detail-close" id="detail-close" type="button"></button>
+            </header>
+            <div class="detail-modal-body" id="detail-body"></div>
+            <footer class="detail-modal-footer" id="detail-footer"></footer>
+        </div>
+    </div>
+
+    <div id="dialog-overlay" class="dialog-overlay hidden">
+        <div class="dialog-box">
+            <div class="dialog-icon-wrap" id="dialog-icon"></div>
+            <h3 id="dialog-title" class="dialog-title">Hinweis</h3>
+            <p id="dialog-message" class="dialog-message"></p>
+            <input type="text" id="dialog-input" class="dialog-input hidden" autocomplete="off">
+            <div class="dialog-actions" id="dialog-actions"></div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+
+    <script>
+        (function loadScripts(i) {
+            var res = (typeof GetParentResourceName === 'function') ? GetParentResourceName() : 'esx_rechnungen';
+            var files = ['js/icons.js', 'js/dialogs.js', 'js/billing.js'];
+            if (i >= files.length) return;
+            var s = document.createElement('script');
+            s.src = 'nui://' + res + '/html/' + files[i];
+            s.onload = function() { loadScripts(i + 1); };
+            document.body.appendChild(s);
+        })(0);
+    </script>
+</body>
+</html>
