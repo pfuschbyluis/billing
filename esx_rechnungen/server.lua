@@ -130,7 +130,36 @@ local function RunMigrations()
         "ALTER TABLE rechnungen_invoices ADD COLUMN signature MEDIUMTEXT DEFAULT NULL",
         "ALTER TABLE rechnungen_invoices ADD COLUMN duration_days INT DEFAULT NULL",
         "ALTER TABLE rechnungen_invoices ADD COLUMN issuer_mode VARCHAR(20) DEFAULT 'personal'",
-        "ALTER TABLE rechnungen_invoices MODIFY payment_status ENUM('open','paid','cancelled','overdue','rejected') NOT NULL DEFAULT 'open'"
+        "ALTER TABLE rechnungen_invoices MODIFY payment_status ENUM('open','paid','cancelled','overdue','rejected') NOT NULL DEFAULT 'open'",
+        [[CREATE TABLE IF NOT EXISTS rechnungen_contacts (
+            id INT NOT NULL AUTO_INCREMENT,
+            owner_identifier VARCHAR(60) NOT NULL,
+            contact_name VARCHAR(100) NOT NULL,
+            contact_identifier VARCHAR(60) NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY owner_contact (owner_identifier, contact_identifier)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]],
+        [[CREATE TABLE IF NOT EXISTS rechnungen_templates (
+            id INT NOT NULL AUTO_INCREMENT,
+            owner_identifier VARCHAR(60) NOT NULL,
+            job_name VARCHAR(50) DEFAULT NULL,
+            is_shared TINYINT(1) NOT NULL DEFAULT 0,
+            name VARCHAR(100) NOT NULL,
+            title VARCHAR(200) DEFAULT NULL,
+            notes TEXT DEFAULT NULL,
+            line_items JSON DEFAULT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]],
+        [[CREATE TABLE IF NOT EXISTS rechnungen_user_prefs (
+            identifier VARCHAR(60) NOT NULL,
+            theme VARCHAR(10) NOT NULL DEFAULT 'dark',
+            view_mode VARCHAR(10) NOT NULL DEFAULT 'table',
+            account_mode VARCHAR(10) NOT NULL DEFAULT 'personal',
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (identifier)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci]]
     }
 
     for _, statement in ipairs(migrations) do
@@ -148,6 +177,82 @@ local function GetDefaultTemplates()
         { name = 'Dienstleistung', items = { { description = 'Dienstleistung', units = 1, price = 250 } }, notes = '' },
         { name = 'Material', items = { { description = 'Material', units = 1, price = 50 } }, notes = '' }
     }
+end
+
+--- Charaktername aus Identifier (auch offline)
+---@param identifier string
+---@return string
+local function GetCharacterName(identifier)
+    local row = MySQL.single.await('SELECT firstname, lastname FROM users WHERE identifier = ? LIMIT 1', { identifier })
+    if row and row.firstname then
+        return (row.firstname .. ' ' .. (row.lastname or '')):gsub('%s+$', '')
+    end
+
+    row = MySQL.single.await('SELECT name FROM users WHERE identifier = ? LIMIT 1', { identifier })
+    if row and row.name then
+        return row.name
+    end
+
+    return identifier
+end
+
+--- Vorlagen aus DB + Standard
+---@param identifier string
+---@param jobName string
+---@return table
+local function GetTemplatesForPlayer(identifier, jobName)
+    local templates = {}
+    for _, tpl in ipairs(GetDefaultTemplates()) do
+        templates[#templates + 1] = tpl
+    end
+
+    local dbTemplates = MySQL.query.await(
+        'SELECT * FROM rechnungen_templates WHERE owner_identifier = ? OR (is_shared = 1 AND job_name = ?) ORDER BY name ASC',
+        { identifier, jobName }
+    ) or {}
+
+    for _, t in ipairs(dbTemplates) do
+        local items = {}
+        if t.line_items then
+            items = type(t.line_items) == 'string' and json.decode(t.line_items) or t.line_items
+        end
+        templates[#templates + 1] = {
+            id = t.id,
+            name = t.name,
+            title = t.title,
+            items = items or {},
+            notes = t.notes or '',
+            is_shared = t.is_shared == 1,
+            is_custom = true
+        }
+    end
+
+    return templates
+end
+
+--- Benutzereinstellungen laden
+---@param identifier string
+---@return table
+local function GetUserPrefs(identifier)
+    local row = MySQL.single.await('SELECT * FROM rechnungen_user_prefs WHERE identifier = ?', { identifier })
+    if not row then
+        return { theme = 'dark', view_mode = 'table', account_mode = 'personal' }
+    end
+    return {
+        theme = row.theme or 'dark',
+        view_mode = row.view_mode or 'table',
+        account_mode = row.account_mode or 'personal'
+    }
+end
+
+--- Kontakte laden
+---@param identifier string
+---@return table
+local function GetContacts(identifier)
+    return MySQL.query.await(
+        'SELECT id, contact_name, contact_identifier, created_at FROM rechnungen_contacts WHERE owner_identifier = ? ORDER BY contact_name ASC',
+        { identifier }
+    ) or {}
 end
 
 --- Baut Chart-Daten für die letzten N Tage
@@ -996,29 +1101,50 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
 
     if recipientType == 'player' then
         local targetId = tonumber(data.target_id)
-        if not targetId then
+        local targetIdentifier = tostring(data.target_identifier or ''):gsub('^%s+', ''):gsub('%s+$', '')
+
+        if targetIdentifier ~= '' then
+            local xTarget = nil
+            for _, p in pairs(ESX.GetExtendedPlayers()) do
+                if p.identifier == targetIdentifier then
+                    xTarget = p
+                    break
+                end
+            end
+
+            if xTarget and jobSettings.require_proximity and jobSettings.require_proximity == 1 then
+                local dist = GetDistanceBetweenPlayers(source, xTarget.source)
+                local maxDist = tonumber(jobSettings.max_distance) or 5.0
+                if dist > maxDist then
+                    Notify(source, ('Der Empfänger ist zu weit entfernt (max. %.1fm).'):format(maxDist), 'error')
+                    return
+                end
+            end
+
+            recipientIdentifier = targetIdentifier
+            recipientName = xTarget and xTarget.getName() or GetCharacterName(targetIdentifier)
+        elseif targetId then
+            local xTarget = ESX.GetPlayerFromId(targetId)
+            if not xTarget then
+                Notify(source, 'Empfänger nicht gefunden oder nicht online.', 'error')
+                return
+            end
+
+            if jobSettings.require_proximity and jobSettings.require_proximity == 1 then
+                local dist = GetDistanceBetweenPlayers(source, targetId)
+                local maxDist = tonumber(jobSettings.max_distance) or 5.0
+                if dist > maxDist then
+                    Notify(source, ('Der Empfänger ist zu weit entfernt (max. %.1fm).'):format(maxDist), 'error')
+                    return
+                end
+            end
+
+            recipientIdentifier = xTarget.identifier
+            recipientName = xTarget.getName()
+        else
             Notify(source, 'Ungültiger Empfänger.', 'error')
             return
         end
-
-        local xTarget = ESX.GetPlayerFromId(targetId)
-        if not xTarget then
-            Notify(source, 'Empfänger nicht gefunden oder nicht online.', 'error')
-            return
-        end
-
-        -- Validierung: Nähe
-        if jobSettings.require_proximity and jobSettings.require_proximity == 1 then
-            local dist = GetDistanceBetweenPlayers(source, targetId)
-            local maxDist = tonumber(jobSettings.max_distance) or 5.0
-            if dist > maxDist then
-                Notify(source, ('Der Empfänger ist zu weit entfernt (max. %.1fm).'):format(maxDist), 'error')
-                return
-            end
-        end
-
-        recipientIdentifier = xTarget.identifier
-        recipientName = xTarget.getName()
 
     elseif recipientType == 'society' then
         local societyName = tostring(data.society_name or '')
@@ -1307,16 +1433,29 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
     local hasGrade = HasGradePermission(xPlayer)
     if CanJobIssueInvoices(jobSettings) and hasGrade then
         canCreate = true
-        createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name], templates = GetDefaultTemplates() }
+        createData = {
+            job = job,
+            settings = jobSettings,
+            societyInfo = SocietyInfo[job.name],
+            templates = GetTemplatesForPlayer(identifier, job.name)
+        }
     end
+
+    local hasBusinessAccount = job.name ~= 'unemployed' and job.name ~= nil
 
     cb({
         playerName = xPlayer.getName(),
+        playerIdentifier = identifier,
+        jobName = job.name,
+        jobLabel = job.label,
+        hasBusinessAccount = hasBusinessAccount,
         isAdmin = isAdmin,
         canCreate = canCreate,
         createData = createData,
         received = received,
         created = created,
+        contacts = GetContacts(identifier),
+        userPrefs = GetUserPrefs(identifier),
         stats = stats,
         ui = Config.UI,
         durations = Config.Durations,
@@ -1358,71 +1497,46 @@ end)
 -- Rechnung bezahlen (serverseitige Validierung)
 -- ============================================================
 
-RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
-    local source = source
-    local xPlayer = ESX.GetPlayerFromId(source)
-    if not xPlayer then return end
-
-    invoiceId = tonumber(invoiceId)
-    if not invoiceId then return end
-
-    -- Rechnung laden
-    local invoice = MySQL.single.await('SELECT * FROM rechnungen_invoices WHERE id = ?', { invoiceId })
-    if not invoice then
-        Notify(source, 'Rechnung nicht gefunden.', 'error')
-        return
-    end
-
-    -- Validierung: Empfänger (Spieler oder Society-Mitarbeiter)
+---@param source number
+---@param xPlayer table
+---@param invoice table
+---@param paymentMethod string
+---@return boolean success
+---@return string|nil message
+local function TryPayInvoice(source, xPlayer, invoice, paymentMethod)
     if invoice.recipient_type == 'player' then
         if invoice.recipient_identifier ~= xPlayer.identifier then
-            Notify(source, 'Diese Rechnung gehört nicht dir.', 'error')
-            return
+            return false, 'Diese Rechnung gehört nicht dir.'
         end
     elseif invoice.recipient_type == 'society' then
         local societyName = invoice.recipient_identifier:gsub('^society:', '')
         if xPlayer.getJob().name ~= societyName then
-            Notify(source, 'Diese Firmenrechnung gehört nicht zu deiner Firma.', 'error')
-            return
+            return false, 'Diese Firmenrechnung gehört nicht zu deiner Firma.'
         end
     end
 
-    -- Validierung: Status
     if invoice.payment_status ~= 'open' and invoice.payment_status ~= 'overdue' then
-        Notify(source, 'Diese Rechnung kann nicht mehr bezahlt werden.', 'error')
-        return
+        return false, 'Diese Rechnung kann nicht mehr bezahlt werden.'
     end
 
-    -- Job-Einstellungen des Ausstellers laden
-    local jobSettings = GetJobSettings(invoice.issuer_job)
-    if not jobSettings then
-        jobSettings = {
-            payment_bank = 1,
-            payment_cash = 1,
-            money_destination = 'society',
-            society_percent = 70,
-            employee_percent = 30
-        }
-    end
+    local jobSettings = GetJobSettings(invoice.issuer_job) or {
+        payment_bank = 1, payment_cash = 1, money_destination = 'society',
+        society_percent = 70, employee_percent = 30
+    }
 
-    -- Validierung: Zahlungsmethode
     paymentMethod = paymentMethod or 'bank'
     if paymentMethod == 'bank' and (not jobSettings.payment_bank or jobSettings.payment_bank == 0) then
-        Notify(source, 'Bankzahlung ist für diese Rechnung nicht erlaubt.', 'error')
-        return
+        return false, 'Bankzahlung ist für diese Rechnung nicht erlaubt.'
     end
     if paymentMethod == 'cash' and (not jobSettings.payment_cash or jobSettings.payment_cash == 0) then
-        Notify(source, 'Barzahlung ist für diese Rechnung nicht erlaubt.', 'error')
-        return
+        return false, 'Barzahlung ist für diese Rechnung nicht erlaubt.'
     end
 
-    -- Gesamtbetrag inkl. Mahngebühr bei Überfälligkeit
     local totalAmount = tonumber(invoice.gross_amount)
     if invoice.payment_status == 'overdue' then
         totalAmount = totalAmount + tonumber(invoice.reminder_fee or 0)
     end
 
-    -- Validierung: Geld (bei Society-Rechnungen vom Firmenkonto)
     if invoice.recipient_type == 'society' then
         local societyName = invoice.recipient_identifier:gsub('^society:', '')
         local accountName = 'society_' .. societyName
@@ -1441,31 +1555,24 @@ RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
         end
 
         if not societyAccount or societyAccount.money < totalAmount then
-            Notify(source, 'Nicht genug Geld auf dem Firmenkonto.', 'error')
-            return
+            return false, 'Nicht genug Geld auf dem Firmenkonto.'
         end
 
         societyAccount.removeMoney(totalAmount)
     elseif paymentMethod == 'bank' then
-        local bankMoney = xPlayer.getAccount('bank').money
-        if bankMoney < totalAmount then
-            Notify(source, 'Nicht genug Geld auf dem Bankkonto.', 'error')
-            return
+        if xPlayer.getAccount('bank').money < totalAmount then
+            return false, 'Nicht genug Geld auf dem Bankkonto.'
         end
         xPlayer.removeAccountMoney('bank', totalAmount, 'Rechnung ' .. invoice.invoice_number)
     else
-        local cashMoney = xPlayer.getMoney()
-        if cashMoney < totalAmount then
-            Notify(source, 'Nicht genug Bargeld.', 'error')
-            return
+        if xPlayer.getMoney() < totalAmount then
+            return false, 'Nicht genug Bargeld.'
         end
         xPlayer.removeMoney(totalAmount, 'Rechnung ' .. invoice.invoice_number)
     end
 
-    -- Geld weiterleiten
     local destination = jobSettings.money_destination or 'society'
     local societyPercent = tonumber(jobSettings.society_percent) or 70
-    local employeePercent = tonumber(jobSettings.employee_percent) or 30
 
     if destination == 'society' then
         AddMoneyToSociety(invoice.issuer_job, totalAmount)
@@ -1481,7 +1588,6 @@ RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
                 end
             end
         else
-            -- Aussteller offline -> an Society
             AddMoneyToSociety(invoice.issuer_job, totalAmount)
         end
     elseif destination == 'split' then
@@ -1502,13 +1608,10 @@ RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
         end
     end
 
-    -- Status aktualisieren
     MySQL.update.await(
         "UPDATE rechnungen_invoices SET payment_status = 'paid', payment_method = ?, paid_at = NOW() WHERE id = ?",
-        { paymentMethod, invoiceId }
+        { paymentMethod, invoice.id }
     )
-
-    Notify(source, ('Rechnung %s erfolgreich bezahlt (%s€).'):format(invoice.invoice_number, totalAmount), 'success')
 
     SendDiscordLog('💰 Rechnung bezahlt', ([[
 **Rechnungsnummer:** %s
@@ -1516,6 +1619,31 @@ RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
 **Betrag:** %s€
 **Methode:** %s
     ]]):format(invoice.invoice_number, xPlayer.getName(), totalAmount, paymentMethod == 'bank' and 'Bank' or 'Bargeld'), 5763719)
+
+    return true, totalAmount
+end
+
+RegisterNetEvent('esx_rechnungen:payInvoice', function(invoiceId, paymentMethod)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    invoiceId = tonumber(invoiceId)
+    if not invoiceId then return end
+
+    local invoice = MySQL.single.await('SELECT * FROM rechnungen_invoices WHERE id = ?', { invoiceId })
+    if not invoice then
+        Notify(source, 'Rechnung nicht gefunden.', 'error')
+        return
+    end
+
+    local ok, result = TryPayInvoice(source, xPlayer, invoice, paymentMethod)
+    if not ok then
+        Notify(source, result or 'Zahlung fehlgeschlagen.', 'error')
+        return
+    end
+
+    Notify(source, ('Rechnung %s erfolgreich bezahlt (%s€).'):format(invoice.invoice_number, result), 'success')
 end)
 
 -- ============================================================
@@ -1693,4 +1821,189 @@ ESX.RegisterServerCallback('esx_rechnungen:getAllSocieties', function(source, cb
 
     local societies = MySQL.query.await("SELECT name, label FROM jobs WHERE name != 'unemployed' ORDER BY label ASC")
     cb(societies or {})
+end)
+
+-- ============================================================
+-- Bablo-Features: Kontakte, Vorlagen, Einstellungen, Lookup
+-- ============================================================
+
+ESX.RegisterServerCallback('esx_rechnungen:lookupIdentifier', function(source, cb, identifier)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then cb(nil) return end
+
+    identifier = tostring(identifier or ''):gsub('^%s+', ''):gsub('%s+$', '')
+    if identifier == '' then cb(nil) return end
+
+    for _, p in pairs(ESX.GetExtendedPlayers()) do
+        if p.identifier == identifier then
+            cb({ identifier = p.identifier, name = p.getName(), online = true, source = p.source })
+            return
+        end
+    end
+
+    local name = GetCharacterName(identifier)
+    if name ~= identifier then
+        cb({ identifier = identifier, name = name, online = false })
+        return
+    end
+
+    cb(nil)
+end)
+
+RegisterNetEvent('esx_rechnungen:saveContact', function(data)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    local name = tostring(data.contact_name or ''):sub(1, 100)
+    local identifier = tostring(data.contact_identifier or ''):gsub('^%s+', ''):gsub('%s+$', '')
+
+    if name == '' or identifier == '' then
+        Notify(source, 'Name und Identifier sind erforderlich.', 'error')
+        return
+    end
+
+    MySQL.insert.await(
+        'INSERT INTO rechnungen_contacts (owner_identifier, contact_name, contact_identifier) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE contact_name = VALUES(contact_name)',
+        { xPlayer.identifier, name, identifier }
+    )
+    Notify(source, 'Kontakt gespeichert.', 'success')
+end)
+
+RegisterNetEvent('esx_rechnungen:deleteContact', function(contactId)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    contactId = tonumber(contactId)
+    if not contactId then return end
+
+    MySQL.update.await(
+        'DELETE FROM rechnungen_contacts WHERE id = ? AND owner_identifier = ?',
+        { contactId, xPlayer.identifier }
+    )
+    Notify(source, 'Kontakt gelöscht.', 'success')
+end)
+
+RegisterNetEvent('esx_rechnungen:saveTemplate', function(data)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    local job = xPlayer.getJob()
+    local jobSettings = GetJobSettings(job.name)
+    if not CanJobIssueInvoices(jobSettings) then
+        Notify(source, 'Keine Berechtigung für Vorlagen.', 'error')
+        return
+    end
+
+    local name = tostring(data.name or ''):sub(1, 100)
+    if name == '' then
+        Notify(source, 'Vorlagenname erforderlich.', 'error')
+        return
+    end
+
+    local lineItems = data.line_items
+    local lineItemsJson = type(lineItems) == 'table' and json.encode(lineItems) or nil
+    local isShared = data.is_shared and 1 or 0
+    local templateId = tonumber(data.id)
+
+    if templateId then
+        MySQL.update.await([[
+            UPDATE rechnungen_templates
+            SET name = ?, title = ?, notes = ?, line_items = ?, is_shared = ?, job_name = ?
+            WHERE id = ? AND owner_identifier = ?
+        ]], {
+            name, tostring(data.title or ''):sub(1, 200), tostring(data.notes or ''):sub(1, 2000),
+            lineItemsJson, isShared, isShared == 1 and job.name or nil,
+            templateId, xPlayer.identifier
+        })
+    else
+        MySQL.insert.await([[
+            INSERT INTO rechnungen_templates (owner_identifier, job_name, is_shared, name, title, notes, line_items)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ]], {
+            xPlayer.identifier, isShared == 1 and job.name or nil, isShared,
+            name, tostring(data.title or ''):sub(1, 200), tostring(data.notes or ''):sub(1, 2000), lineItemsJson
+        })
+    end
+
+    Notify(source, 'Vorlage gespeichert.', 'success')
+end)
+
+RegisterNetEvent('esx_rechnungen:deleteTemplate', function(templateId)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    templateId = tonumber(templateId)
+    if not templateId then return end
+
+    MySQL.update.await(
+        'DELETE FROM rechnungen_templates WHERE id = ? AND owner_identifier = ?',
+        { templateId, xPlayer.identifier }
+    )
+    Notify(source, 'Vorlage gelöscht.', 'success')
+end)
+
+RegisterNetEvent('esx_rechnungen:saveUserPrefs', function(prefs)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    local theme = prefs.theme == 'light' and 'light' or 'dark'
+    local viewMode = prefs.view_mode == 'card' and 'card' or 'table'
+    local accountMode = prefs.account_mode == 'business' and 'business' or 'personal'
+
+    MySQL.insert.await([[
+        INSERT INTO rechnungen_user_prefs (identifier, theme, view_mode, account_mode)
+        VALUES (?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE theme = VALUES(theme), view_mode = VALUES(view_mode), account_mode = VALUES(account_mode)
+    ]], { xPlayer.identifier, theme, viewMode, accountMode })
+end)
+
+RegisterNetEvent('esx_rechnungen:payAllInvoices', function(data)
+    local source = source
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    local paymentMethod = (data and data.paymentMethod) or 'bank'
+    local accountMode = (data and data.account_mode) or 'personal'
+    local job = xPlayer.getJob()
+
+    local invoices
+    if accountMode == 'business' then
+        invoices = MySQL.query.await(
+            "SELECT * FROM rechnungen_invoices WHERE recipient_type = 'society' AND recipient_identifier = ? AND payment_status IN ('open', 'overdue') ORDER BY due_date ASC",
+            { 'society:' .. job.name }
+        ) or {}
+    else
+        invoices = MySQL.query.await(
+            "SELECT * FROM rechnungen_invoices WHERE recipient_type = 'player' AND recipient_identifier = ? AND payment_status IN ('open', 'overdue') ORDER BY due_date ASC",
+            { xPlayer.identifier }
+        ) or {}
+    end
+
+    if #invoices == 0 then
+        Notify(source, 'Keine offenen Rechnungen zum Bezahlen.', 'info')
+        return
+    end
+
+    local paid = 0
+    local totalPaid = 0
+    for _, invoice in ipairs(invoices) do
+        local ok, result = TryPayInvoice(source, xPlayer, invoice, paymentMethod)
+        if ok then
+            paid = paid + 1
+            totalPaid = totalPaid + (tonumber(result) or 0)
+        else
+            break
+        end
+    end
+
+    if paid == 0 then
+        Notify(source, 'Keine Rechnung konnte bezahlt werden.', 'error')
+    else
+        Notify(source, ('%d Rechnung(en) bezahlt (%s€ gesamt).'):format(paid, totalPaid), 'success')
+    end
 end)

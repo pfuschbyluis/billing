@@ -15,10 +15,11 @@
                     <div class="sidebar-avatar" id="sidebar-avatar">R</div>
                     <div class="sidebar-profile-text">
                         <div class="sidebar-name" id="billing-player-name">Spieler</div>
-                        <div class="sidebar-account">
+                        <button class="account-switch" id="account-switch" type="button">
                             <span class="online-dot"></span>
-                            Persönliches Konto
-                        </div>
+                            <span id="account-label">Persönliches Konto</span>
+                            <span class="account-switch-icon" data-icon="repeat"></span>
+                        </button>
                     </div>
                 </div>
 
@@ -36,6 +37,10 @@
                         <span class="sidebar-icon" data-icon="receipt"></span>
                         Gesendet
                     </button>
+                    <button class="sidebar-item" data-tab="contacts" type="button">
+                        <span class="sidebar-icon" data-icon="users"></span>
+                        Kontakte
+                    </button>
                     <button class="sidebar-item" data-tab="statistics" type="button">
                         <span class="sidebar-icon" data-icon="hash"></span>
                         Statistik
@@ -47,6 +52,10 @@
                     <button class="sidebar-item" data-tab="create" type="button" id="nav-create">
                         <span class="sidebar-icon" data-icon="plus"></span>
                         Rechnung erstellen
+                    </button>
+                    <button class="sidebar-item" data-tab="settings" type="button">
+                        <span class="sidebar-icon" data-icon="settings"></span>
+                        Einstellungen
                     </button>
                     <button class="sidebar-item hidden" data-tab="admin" type="button" id="nav-admin">
                         <span class="sidebar-icon" data-icon="shield"></span>

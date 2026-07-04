@@ -39,6 +39,13 @@ Vergleich zur RiP-Billing-Spezifikation. Alles Wichtige ist über `config.lua` s
 | Überfälligkeits-Erkennung | ✅ |
 | Erinnerungen vor Fälligkeit | ✅ |
 | Suche & Filter | ✅ |
+| Persönlich / Firmenkonto wechseln | ✅ |
+| Kontakte-System | ✅ |
+| Identifier / License Lookup | ✅ |
+| Karten- & Tabellenansicht | ✅ |
+| Alle Rechnungen bezahlen | ✅ |
+| Dark / Light Mode | ✅ |
+| Vorlagen-Suche & DB-Vorlagen | ✅ |
 | Job-Präfixe | ✅ |
 | Rechnungsstationen | ✅ |
 | Adminpanel (MySQL) | ✅ |

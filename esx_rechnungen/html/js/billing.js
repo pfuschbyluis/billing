@@ -20,7 +20,13 @@ var state = {
     selectedInvoice: null,
     pendingTemplate: null,
     chartScope: 'created',
-    chartRange: 14
+    chartRange: 14,
+    accountMode: 'personal',
+    viewMode: 'table',
+    theme: 'dark',
+    templateSearch: '',
+    contactSearch: '',
+    pendingContactId: null
 };
 
 function getResourceName() {
@@ -102,6 +108,74 @@ function applyTheme(ui) {
         var avatar = document.getElementById('sidebar-avatar');
         if (avatar && avatar.textContent.length <= 2) avatar.textContent = String(ui.logo).slice(0, 2).toUpperCase();
     }
+    applyColorTheme(state.theme || 'dark');
+}
+
+function applyColorTheme(theme) {
+    state.theme = theme === 'light' ? 'light' : 'dark';
+    document.body.classList.toggle('theme-light', state.theme === 'light');
+    document.body.classList.toggle('theme-dark', state.theme !== 'light');
+}
+
+function saveUserPrefs(partial) {
+    var prefs = {
+        theme: partial.theme || state.theme,
+        view_mode: partial.view_mode || state.viewMode,
+        account_mode: partial.account_mode || state.accountMode
+    };
+    nuiFetch('saveUserPrefs', prefs);
+}
+
+function getJobName() {
+    return (state.data && state.data.jobName) || '';
+}
+
+function filterByAccount(list, direction) {
+    var account = state.accountMode || 'personal';
+    var job = getJobName();
+    if (!list) return [];
+
+    if (direction === 'received') {
+        if (account === 'business') {
+            return list.filter(function(inv) {
+                return inv.recipient_type === 'society' && inv.recipient_identifier === 'society:' + job;
+            });
+        }
+        return list.filter(function(inv) { return inv.recipient_type === 'player'; });
+    }
+
+    if (account === 'business') {
+        return list.filter(function(inv) { return inv.issuer_mode === 'company'; });
+    }
+    return list.filter(function(inv) { return inv.issuer_mode !== 'company'; });
+}
+
+function updateAccountLabel() {
+    var label = document.getElementById('account-label');
+    var switchBtn = document.getElementById('account-switch');
+    var d = state.data || {};
+    var isBusiness = state.accountMode === 'business';
+
+    if (label) {
+        label.textContent = isBusiness
+            ? ('Firmenkonto · ' + (d.jobLabel || d.jobName || 'Firma'))
+            : 'Persönliches Konto';
+    }
+    if (switchBtn) {
+        switchBtn.classList.toggle('business', isBusiness);
+        switchBtn.title = d.hasBusinessAccount ? 'Konto wechseln' : 'Persönliches Konto';
+        switchBtn.disabled = !d.hasBusinessAccount;
+    }
+}
+
+function toggleAccountMode() {
+    var d = state.data || {};
+    if (!d.hasBusinessAccount) return;
+    state.accountMode = state.accountMode === 'business' ? 'personal' : 'business';
+    updateAccountLabel();
+    updateSidebarBadges();
+    saveUserPrefs({ account_mode: state.accountMode });
+    renderCurrentTab();
 }
 
 function esc(s) {
@@ -125,6 +199,12 @@ function updateSidebarAvatar(name) {
 }
 
 function afterDashboardRefresh() {
+    var prefs = (state.data && state.data.userPrefs) || {};
+    state.accountMode = prefs.account_mode || state.accountMode || 'personal';
+    state.viewMode = prefs.view_mode || state.viewMode || 'table';
+    state.theme = prefs.theme || state.theme || 'dark';
+    applyColorTheme(state.theme);
+    updateAccountLabel();
     updateSidebarBadges();
     renderCurrentTab();
 }
@@ -144,17 +224,20 @@ function refreshDashboard(cb) {
 
 function updateSidebarBadges() {
     var d = state.data || {};
-    var stats = d.stats || {};
+    var received = filterByAccount(d.received || [], 'received');
+    var count = 0;
+    received.forEach(function(inv) {
+        if (inv.payment_status === 'open' || inv.payment_status === 'overdue') count++;
+    });
     var badge = document.getElementById('badge-received');
     if (badge) {
-        var count = stats.open || 0;
         badge.textContent = count;
         badge.classList.toggle('hidden', count <= 0);
     }
 }
 
 function initSidebarIcons() {
-    document.querySelectorAll('.sidebar-icon[data-icon]').forEach(function(el) {
+    document.querySelectorAll('.sidebar-icon[data-icon], .account-switch-icon[data-icon]').forEach(function(el) {
         setIcon(el, el.getAttribute('data-icon'), 16);
     });
 }
@@ -194,8 +277,10 @@ function openAdminPanel() {
 function renderCurrentTab() {
     if (state.tab === 'dashboard') renderDashboardPage();
     else if (state.tab === 'received' || state.tab === 'sent') renderInvoiceListPage(state.tab);
+    else if (state.tab === 'contacts') renderContacts();
     else if (state.tab === 'statistics') renderStatistics();
     else if (state.tab === 'templates') renderTemplates();
+    else if (state.tab === 'settings') renderSettings();
     else if (state.tab === 'create') renderCreate();
     else if (state.tab === 'admin') renderAdmin();
 }
@@ -207,8 +292,8 @@ function renderCurrentTab() {
 function getMergedInvoices() {
     var d = state.data || {};
     var all = [];
-    (d.received || []).forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'received' })); });
-    (d.created || []).forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'sent' })); });
+    filterByAccount(d.received || [], 'received').forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'received' })); });
+    filterByAccount(d.created || [], 'sent').forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'sent' })); });
     all.sort(function(a, b) {
         return String(b.created_at || '') > String(a.created_at || '') ? 1 : -1;
     });
@@ -425,12 +510,25 @@ function renderDashboardPage() {
 function renderInvoiceListPage(tab) {
     state.subTab = tab === 'sent' ? 'created' : 'received';
     var title = tab === 'sent' ? 'Gesendete Rechnungen' : 'Empfangene Rechnungen';
-    var subtitle = tab === 'sent' ? 'Von dir ausgestellte Rechnungen' : 'An dich gerichtete Rechnungen';
+    var subtitle = tab === 'sent'
+        ? 'Von dir ausgestellte Rechnungen'
+        : 'An dich gerichtete Rechnungen';
+    var openCount = getInvoiceList().filter(function(inv) {
+        return inv.payment_status === 'open' || inv.payment_status === 'overdue';
+    }).length;
 
     document.getElementById('billing-body').innerHTML =
-        '<div class="page-header"><div><h2>' + title + '</h2><p style="font-size:12px;color:var(--text-muted);margin-top:4px">' + subtitle + '</p></div></div>' +
+        '<div class="page-header"><div><h2>' + title + '</h2><p class="page-subtitle">' + subtitle + '</p></div>' +
+        (tab === 'received' && openCount > 0
+            ? '<button class="btn btn-primary" id="btn-pay-all" type="button">' + iconHtml('credit-card', 14) + ' Alle bezahlen (' + openCount + ')</button>'
+            : '') +
+        '</div>' +
         '<div class="list-toolbar">' +
-        '<div class="list-filters" style="margin-left:auto">' +
+        '<div class="view-toggle">' +
+        '<button class="view-btn' + (state.viewMode === 'table' ? ' active' : '') + '" data-view="table" type="button">Tabelle</button>' +
+        '<button class="view-btn' + (state.viewMode === 'card' ? ' active' : '') + '" data-view="card" type="button">Karten</button>' +
+        '</div>' +
+        '<div class="list-filters">' +
         '<select class="filter-select" id="invoice-filter">' +
         '<option value="all">Alle</option><option value="open">Offen</option><option value="paid">Bezahlt</option>' +
         '<option value="overdue">Überfällig</option><option value="cancelled">Storniert</option><option value="rejected">Abgelehnt</option>' +
@@ -438,7 +536,27 @@ function renderInvoiceListPage(tab) {
         '<div class="search-wrap">' + iconHtml('search', 14) +
         '<input class="search-input" id="invoice-search" type="text" placeholder="Suchen..." value="' + esc(state.search) + '"></div>' +
         '</div></div>' +
-        '<div class="invoice-list" id="invoice-list"></div>';
+        '<div class="invoice-list' + (state.viewMode === 'card' ? ' card-grid' : '') + '" id="invoice-list"></div>';
+
+    var payAllBtn = document.getElementById('btn-pay-all');
+    if (payAllBtn) {
+        payAllBtn.onclick = function() {
+            showConfirm('Alle offenen Rechnungen per Bank bezahlen?', { title: 'Alle bezahlen', confirmText: 'Bezahlen' }).then(function(ok) {
+                if (!ok) return;
+                nuiFetch('payAllInvoices', { paymentMethod: 'bank', account_mode: state.accountMode });
+                showToast('Zahlungen werden verarbeitet...', 'info');
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 900);
+            });
+        };
+    }
+
+    document.querySelectorAll('.view-btn').forEach(function(btn) {
+        btn.onclick = function() {
+            state.viewMode = btn.dataset.view;
+            saveUserPrefs({ view_mode: state.viewMode });
+            renderInvoiceListPage(tab);
+        };
+    });
 
     document.getElementById('invoice-filter').value = state.filter;
     document.getElementById('invoice-filter').onchange = function() {
@@ -458,7 +576,8 @@ function statCard(label, value) {
 
 function getInvoiceList() {
     var d = state.data || {};
-    return state.subTab === 'created' ? (d.created || []) : (d.received || []);
+    var list = state.subTab === 'created' ? (d.created || []) : (d.received || []);
+    return filterByAccount(list, state.subTab === 'created' ? 'sent' : 'received');
 }
 
 function renderInvoiceList() {
@@ -478,35 +597,66 @@ function renderInvoiceList() {
     var el = document.getElementById('invoice-list');
     if (!el) return;
 
+    var canDelete = state.data && state.data.isAdmin;
+
     if (filtered.length === 0) {
         el.innerHTML = '<div class="empty-state"><div class="icon-wrap">' + iconHtml('inbox', 40) + '</div>Keine Rechnungen in dieser Ansicht</div>';
         return;
     }
 
-    el.innerHTML = filtered.map(function(inv) {
-        var gross = parseFloat(inv.gross_amount) || 0;
-        var rem = inv.payment_status === 'overdue' ? (parseFloat(inv.reminder_fee) || 0) : 0;
-        var total = gross + rem;
-        var canDelete = state.data && state.data.isAdmin;
+    if (state.viewMode === 'card') {
+        el.innerHTML = filtered.map(function(inv) {
+            return renderInvoiceCard(inv);
+        }).join('');
+    } else {
+        el.innerHTML = filtered.map(function(inv) {
+            return renderInvoiceRow(inv, canDelete);
+        }).join('');
+    }
 
-        return '<div class="invoice-row" data-id="' + inv.id + '">' +
-            '<div class="invoice-row-main">' +
-            '<div class="invoice-row-top">' +
-            '<span class="invoice-number">' + esc(inv.invoice_number) + '</span>' +
-            '<span class="status-badge ' + statusClass(inv.payment_status) + '">' + statusLabel(inv.payment_status) + '</span>' +
-            '<span class="date-pill">' + formatDate(inv.created_at) + '</span>' +
-            '</div>' +
-            '<div class="invoice-row-meta">' +
-            '<span>Ersteller: <strong>' + esc(inv.issuer_name || '-') + '</strong></span>' +
-            '<span>Empfänger: <strong>' + esc(inv.recipient_name || '-') + '</strong></span>' +
-            '<span>Betrag: <strong>' + formatMoneyShort(total) + '</strong></span>' +
-            '</div></div>' +
-            '<div class="invoice-row-actions">' +
-            '<button class="btn btn-view" type="button" data-view="' + inv.id + '">ANSEHEN</button>' +
-            (canDelete ? '<button class="btn btn-icon btn-del" type="button" data-del="' + inv.id + '" title="Löschen">' + iconHtml('trash', 14) + '</button>' : '') +
-            '</div></div>';
-    }).join('');
+    bindInvoiceListActions(el, filtered, canDelete);
+}
 
+function renderInvoiceRow(inv, canDelete) {
+    var gross = parseFloat(inv.gross_amount) || 0;
+    var rem = inv.payment_status === 'overdue' ? (parseFloat(inv.reminder_fee) || 0) : 0;
+    var total = gross + rem;
+
+    return '<div class="invoice-row" data-id="' + inv.id + '">' +
+        '<div class="invoice-row-main">' +
+        '<div class="invoice-row-top">' +
+        '<span class="invoice-number">' + esc(inv.invoice_number) + '</span>' +
+        '<span class="status-badge ' + statusClass(inv.payment_status) + '">' + statusLabel(inv.payment_status) + '</span>' +
+        '<span class="date-pill">' + formatDate(inv.created_at) + '</span>' +
+        '</div>' +
+        '<div class="invoice-row-meta">' +
+        '<span>Ersteller: <strong>' + esc(inv.issuer_name || '-') + '</strong></span>' +
+        '<span>Empfänger: <strong>' + esc(inv.recipient_name || '-') + '</strong></span>' +
+        '<span>Betrag: <strong>' + formatMoneyShort(total) + '</strong></span>' +
+        '</div></div>' +
+        '<div class="invoice-row-actions">' +
+        '<button class="btn btn-view" type="button" data-view="' + inv.id + '">ANSEHEN</button>' +
+        (canDelete ? '<button class="btn btn-icon btn-del" type="button" data-del="' + inv.id + '" title="Löschen">' + iconHtml('trash', 14) + '</button>' : '') +
+        '</div></div>';
+}
+
+function renderInvoiceCard(inv) {
+    var gross = parseFloat(inv.gross_amount) || 0;
+    var rem = inv.payment_status === 'overdue' ? (parseFloat(inv.reminder_fee) || 0) : 0;
+    var total = gross + rem;
+
+    return '<div class="invoice-card" data-id="' + inv.id + '">' +
+        '<div class="invoice-card-top">' +
+        '<span class="invoice-number">' + esc(inv.invoice_number) + '</span>' +
+        '<span class="status-badge ' + statusClass(inv.payment_status) + '">' + statusLabel(inv.payment_status) + '</span></div>' +
+        '<div class="invoice-card-reason">' + esc(inv.reason || '-') + '</div>' +
+        '<div class="invoice-card-meta">' +
+        '<span>' + esc(inv.issuer_name || '-') + ' → ' + esc(inv.recipient_name || '-') + '</span>' +
+        '<strong>' + formatMoneyShort(total) + '</strong></div>' +
+        '<button class="btn btn-view btn-block" type="button" data-view="' + inv.id + '">Ansehen</button></div>';
+}
+
+function bindInvoiceListActions(el, filtered, canDelete) {
     el.querySelectorAll('[data-view]').forEach(function(btn) {
         btn.onclick = function() {
             var id = parseInt(btn.getAttribute('data-view'));
@@ -797,6 +947,120 @@ function renderRecentPayments(payments) {
 }
 
 // ============================================================
+// KONTAKTE
+// ============================================================
+
+function renderContacts() {
+    var d = state.data || {};
+    var contacts = d.contacts || [];
+
+    document.getElementById('billing-body').innerHTML =
+        '<div class="page-header"><div><h2>Kontakte</h2><p class="page-subtitle">Gespeicherte Empfänger für schnellere Rechnungen</p></div>' +
+        '<button class="btn btn-primary" id="btn-add-contact" type="button">' + iconHtml('plus', 14) + ' Kontakt hinzufügen</button></div>' +
+        '<div class="list-toolbar"><div class="search-wrap">' + iconHtml('search', 14) +
+        '<input class="search-input" id="contact-search" type="text" placeholder="Kontakte suchen..." value="' + esc(state.contactSearch) + '"></div></div>' +
+        '<div class="contact-list" id="contact-list"></div>';
+
+    var filtered = contacts.filter(function(c) {
+        if (!state.contactSearch) return true;
+        var hay = (c.contact_name + ' ' + c.contact_identifier).toLowerCase();
+        return hay.indexOf(state.contactSearch.toLowerCase()) !== -1;
+    });
+
+    var listEl = document.getElementById('contact-list');
+    if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">Noch keine Kontakte gespeichert</div>';
+    } else {
+        listEl.innerHTML = filtered.map(function(c) {
+            return '<div class="contact-card">' +
+                '<div class="contact-card-main"><strong>' + esc(c.contact_name) + '</strong>' +
+                '<span class="contact-id">' + esc(c.contact_identifier) + '</span></div>' +
+                '<div class="contact-card-actions">' +
+                '<button class="btn btn-ghost btn-use-contact" data-id="' + c.contact_identifier + '" type="button">Rechnung</button>' +
+                '<button class="btn btn-icon btn-del-contact" data-id="' + c.id + '" type="button">' + iconHtml('trash', 14) + '</button>' +
+                '</div></div>';
+        }).join('');
+    }
+
+    document.getElementById('contact-search').oninput = function() {
+        state.contactSearch = this.value;
+        renderContacts();
+    };
+
+    document.getElementById('btn-add-contact').onclick = function() {
+        showPrompt('Identifier (z.B. license:...)', '', { title: 'Identifier' }).then(function(identifier) {
+            if (!identifier) return;
+            showPrompt('Anzeigename', '', { title: 'Kontaktname' }).then(function(name) {
+                if (!name) return;
+                nuiFetch('saveContact', { contact_identifier: identifier.trim(), contact_name: name.trim() });
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+            });
+        });
+    };
+
+    listEl.querySelectorAll('.btn-del-contact').forEach(function(btn) {
+        btn.onclick = function() {
+            nuiFetch('deleteContact', { contactId: parseInt(btn.dataset.id) });
+            setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+        };
+    });
+
+    listEl.querySelectorAll('.btn-use-contact').forEach(function(btn) {
+        btn.onclick = function() {
+            if (!(d.canCreate)) {
+                showToast('Du darfst keine Rechnungen ausstellen.', 'warning');
+                return;
+            }
+            state.pendingContactId = btn.dataset.id;
+            setActiveTab('create');
+        };
+    });
+}
+
+// ============================================================
+// EINSTELLUNGEN
+// ============================================================
+
+function renderSettings() {
+    document.getElementById('billing-body').innerHTML =
+        '<div class="page-header"><h2>Einstellungen</h2></div>' +
+        '<div class="settings-grid">' +
+        '<div class="settings-card"><h3>Erscheinungsbild</h3><p>Dark oder Light Mode</p>' +
+        '<div class="theme-toggle">' +
+        '<button class="theme-btn' + (state.theme === 'dark' ? ' active' : '') + '" data-theme="dark" type="button">Dark</button>' +
+        '<button class="theme-btn' + (state.theme === 'light' ? ' active' : '') + '" data-theme="light" type="button">Light</button>' +
+        '</div></div>' +
+        '<div class="settings-card"><h3>Listenansicht</h3><p>Standard für Rechnungslisten</p>' +
+        '<div class="theme-toggle">' +
+        '<button class="theme-btn' + (state.viewMode === 'table' ? ' active' : '') + '" data-view="table" type="button">Tabelle</button>' +
+        '<button class="theme-btn' + (state.viewMode === 'card' ? ' active' : '') + '" data-view="card" type="button">Karten</button>' +
+        '</div></div>' +
+        '<div class="settings-card"><h3>Vorlagen</h3><p>Rechnungsvorlagen verwalten</p>' +
+        '<button class="btn btn-ghost" id="settings-templates" type="button">Zu Vorlagen</button></div>' +
+        '</div>';
+
+    document.querySelectorAll('.theme-btn[data-theme]').forEach(function(btn) {
+        btn.onclick = function() {
+            applyColorTheme(btn.dataset.theme);
+            saveUserPrefs({ theme: state.theme });
+            renderSettings();
+        };
+    });
+
+    document.querySelectorAll('.theme-btn[data-view]').forEach(function(btn) {
+        btn.onclick = function() {
+            state.viewMode = btn.dataset.view;
+            saveUserPrefs({ view_mode: state.viewMode });
+            renderSettings();
+        };
+    });
+
+    document.getElementById('settings-templates').onclick = function() {
+        setActiveTab('templates');
+    };
+}
+
+// ============================================================
 // VORLAGEN
 // ============================================================
 
@@ -811,19 +1075,36 @@ function renderTemplates() {
     }
 
     document.getElementById('billing-body').innerHTML =
-        '<div class="section-title">RECHNUNGS-VORLAGEN</div>' +
+        '<div class="page-header"><div><h2>Vorlagen</h2><p class="page-subtitle">Persönliche und Job-Vorlagen</p></div></div>' +
+        '<div class="list-toolbar"><div class="search-wrap">' + iconHtml('search', 14) +
+        '<input class="search-input" id="template-search" type="text" placeholder="Vorlagen suchen..." value="' + esc(state.templateSearch) + '"></div></div>' +
         '<div class="template-grid" id="template-grid"></div>';
 
+    var filtered = templates.filter(function(tpl) {
+        if (!state.templateSearch) return true;
+        return (tpl.name || '').toLowerCase().indexOf(state.templateSearch.toLowerCase()) !== -1;
+    });
+
     var grid = document.getElementById('template-grid');
-    grid.innerHTML = templates.map(function(tpl, i) {
-        var preview = (tpl.items || []).map(function(it) {
-            return it.description + ' (' + formatMoneyShort((it.units || 1) * (it.price || 0)) + ')';
-        }).join(', ');
-        return '<div class="template-card" data-idx="' + i + '">' +
-            '<h4>' + esc(tpl.name) + '</h4>' +
-            '<p>' + esc(tpl.notes || 'Schnellvorlage für häufige Rechnungen') + '</p>' +
-            '<div class="template-preview">' + esc(preview) + '</div></div>';
-    }).join('');
+    if (filtered.length === 0) {
+        grid.innerHTML = '<div class="empty-state">Keine Vorlagen gefunden</div>';
+    } else {
+        grid.innerHTML = filtered.map(function(tpl, i) {
+            var idx = templates.indexOf(tpl);
+            var preview = (tpl.items || []).map(function(it) {
+                return it.description + ' (' + formatMoneyShort((it.units || 1) * (it.price || 0)) + ')';
+            }).join(', ');
+            return '<div class="template-card" data-idx="' + idx + '">' +
+                '<h4>' + esc(tpl.name) + (tpl.is_shared ? ' <span class="tag tag-sent">Job</span>' : '') + '</h4>' +
+                '<p>' + esc(tpl.notes || 'Schnellvorlage für häufige Rechnungen') + '</p>' +
+                '<div class="template-preview">' + esc(preview) + '</div></div>';
+        }).join('');
+    }
+
+    document.getElementById('template-search').oninput = function() {
+        state.templateSearch = this.value;
+        renderTemplates();
+    };
 
     grid.querySelectorAll('.template-card').forEach(function(card) {
         card.onclick = function() {
@@ -891,7 +1172,17 @@ function renderCreate() {
         '<div class="invoice-field"><label>AUSSTELLER</label>' +
         '<select id="inv-issuer"><option value="personal">Persönlich</option><option value="company">Firma</option></select>' +
         '<div class="invoice-field-hint" id="issuer-hint">* ' + esc(playerName) + '</div></div>' +
-        '<div class="invoice-field"><label>EMPFÄNGER</label><select id="inv-recipient"><option value="">Lädt...</option></select></div>' +
+        '<div class="invoice-field invoice-field-wide"><label>EMPFÄNGER-TYP</label>' +
+        '<select id="inv-recipient-type"><option value="player">Spieler</option><option value="society">Firma / Job</option></select></div>' +
+        '<div class="invoice-field invoice-field-wide" id="player-recipient-wrap"><label>SPIELER</label>' +
+        '<select id="inv-recipient"><option value="">Lädt...</option></select>' +
+        '<div class="recipient-extra">' +
+        '<input type="text" id="inv-license" class="license-input" placeholder="Oder Identifier eingeben (license:...)">' +
+        '<button class="btn btn-ghost btn-sm" id="btn-lookup-id" type="button">Suchen</button>' +
+        '<span class="lookup-result" id="lookup-result"></span></div></div>' +
+        '<div class="invoice-field invoice-field-wide hidden" id="society-recipient-wrap"><label>FIRMA</label>' +
+        '<input type="text" id="society-search" class="license-input" placeholder="Firma suchen...">' +
+        '<select id="inv-society"><option value="">Lädt...</option></select></div>' +
         '<div class="invoice-field"><label>FRIST</label>' +
         '<select id="inv-duration">' + durationHtml + '</select></div>' +
         '<div class="invoice-field"><label>VORLAGE</label>' +
@@ -926,6 +1217,38 @@ function renderCreate() {
     document.getElementById('inv-issuer').onchange = function() {
         var hint = document.getElementById('issuer-hint');
         hint.textContent = this.value === 'company' ? ('* ' + companyName) : ('* ' + playerName);
+    };
+
+    document.getElementById('inv-recipient-type').onchange = function() {
+        var isSociety = this.value === 'society';
+        document.getElementById('player-recipient-wrap').classList.toggle('hidden', isSociety);
+        document.getElementById('society-recipient-wrap').classList.toggle('hidden', !isSociety);
+    };
+
+    document.getElementById('btn-lookup-id').onclick = function() {
+        var id = document.getElementById('inv-license').value.trim();
+        if (!id) return;
+        nuiFetch('lookupIdentifier', { identifier: id }).then(function(res) {
+            var el = document.getElementById('lookup-result');
+            if (!res) {
+                el.textContent = 'Nicht gefunden';
+                el.className = 'lookup-result error';
+                return;
+            }
+            el.textContent = res.name + (res.online ? ' (online)' : ' (offline)');
+            el.className = 'lookup-result success';
+            el.dataset.identifier = res.identifier;
+        });
+    };
+
+    document.getElementById('society-search').oninput = function() {
+        var q = this.value.toLowerCase();
+        var sel = document.getElementById('inv-society');
+        if (!sel) return;
+        Array.prototype.forEach.call(sel.options, function(opt) {
+            if (!opt.value) return;
+            opt.hidden = q && opt.textContent.toLowerCase().indexOf(q) === -1;
+        });
     };
 
     document.getElementById('inv-template').onchange = function() {
@@ -963,11 +1286,22 @@ function renderCreate() {
             }
         }, 50);
     }
+
+    if (state.pendingContactId) {
+        var contactId = state.pendingContactId;
+        state.pendingContactId = null;
+        setTimeout(function() {
+            document.getElementById('inv-license').value = contactId;
+            document.getElementById('btn-lookup-id').click();
+        }, 100);
+    }
 }
 
 function loadCreateRecipients(settings) {
     var select = document.getElementById('inv-recipient');
+    var societySelect = document.getElementById('inv-society');
     var promises = [];
+    var contacts = (state.data && state.data.contacts) || [];
 
     if (settings.can_issue_player !== 0) {
         promises.push(nuiFetch('getNearbyPlayers').then(function(p) { return { type: 'players', data: p || [] }; }));
@@ -977,7 +1311,7 @@ function loadCreateRecipients(settings) {
     }
 
     if (promises.length === 0) {
-        select.innerHTML = '<option value="">Keine Berechtigung</option>';
+        if (select) select.innerHTML = '<option value="">Keine Berechtigung</option>';
         return;
     }
 
@@ -985,11 +1319,19 @@ function loadCreateRecipients(settings) {
         state.createRecipients = { players: [], societies: [] };
         var html = '<option value="">Empfänger wählen...</option>';
 
+        if (contacts.length) {
+            html += '<optgroup label="Kontakte">';
+            contacts.forEach(function(c) {
+                html += '<option value="player:identifier:' + String(c.contact_identifier).replace(/"/g, '') + '">' + esc(c.contact_name) + '</option>';
+            });
+            html += '</optgroup>';
+        }
+
         results.forEach(function(r) {
             if (r.type === 'players') {
                 state.createRecipients.players = r.data;
                 if (r.data.length) {
-                    html += '<optgroup label="Spieler">';
+                    html += '<optgroup label="Spieler in der Nähe">';
                     r.data.forEach(function(p) {
                         html += '<option value="player:' + p.source + '">' + esc(p.name) + ' (' + p.distance + 'm)</option>';
                     });
@@ -997,20 +1339,20 @@ function loadCreateRecipients(settings) {
                 }
             } else {
                 state.createRecipients.societies = r.data;
-                if (r.data.length) {
-                    html += '<optgroup label="Firmen">';
+                if (r.data.length && societySelect) {
+                    var socHtml = '<option value="">Firma wählen...</option>';
                     r.data.forEach(function(s) {
-                        html += '<option value="society:' + s.name + '">' + esc(s.label) + '</option>';
+                        socHtml += '<option value="society:' + s.name + '">' + esc(s.label) + '</option>';
                     });
-                    html += '</optgroup>';
+                    societySelect.innerHTML = socHtml;
                 }
             }
         });
 
         if (html === '<option value="">Empfänger wählen...</option>') {
-            html += '<option value="" disabled>Keine Empfänger verfügbar</option>';
+            html += '<option value="" disabled>Keine Spieler in der Nähe</option>';
         }
-        select.innerHTML = html;
+        if (select) select.innerHTML = html;
     });
 }
 
@@ -1144,7 +1486,21 @@ function getSignatureData() {
 }
 
 function submitInvoiceForm(createData, settings, taxRate) {
-    var recipientVal = document.getElementById('inv-recipient').value;
+    var recipientType = document.getElementById('inv-recipient-type').value;
+    var recipientVal = '';
+
+    if (recipientType === 'society') {
+        recipientVal = document.getElementById('inv-society').value;
+    } else {
+        recipientVal = document.getElementById('inv-recipient').value;
+        if (!recipientVal) {
+            var lookup = document.getElementById('lookup-result');
+            var license = document.getElementById('inv-license').value.trim();
+            if (license) recipientVal = 'player:identifier:' + license;
+            else if (lookup && lookup.dataset.identifier) recipientVal = 'player:identifier:' + lookup.dataset.identifier;
+        }
+    }
+
     if (!recipientVal) {
         showToast('Bitte wähle einen Empfänger.', 'warning');
         return;
@@ -1180,8 +1536,13 @@ function submitInvoiceForm(createData, settings, taxRate) {
         signature: getSignatureData()
     };
 
-    if (parts[0] === 'player') payload.target_id = parseInt(parts[1]);
-    else payload.society_name = parts[1];
+    if (parts[0] === 'player') {
+        if (parts[1] === 'identifier') {
+            payload.target_identifier = recipientVal.substring('player:identifier:'.length);
+        } else {
+            payload.target_id = parseInt(parts[1]);
+        }
+    } else payload.society_name = parts[1];
 
     var reasons = items.map(function(i) {
         return i.description + (i.units > 1 ? ' (' + i.units + 'x)' : '');
@@ -1594,10 +1955,16 @@ function openDashboard(data) {
     state.signatureDirty = false;
     state.adminTab = 'invoices';
 
+    var prefs = state.data.userPrefs || {};
+    state.accountMode = prefs.account_mode || 'personal';
+    state.viewMode = prefs.view_mode || 'table';
+    state.theme = prefs.theme || 'dark';
+
     document.getElementById('billing-player-name').textContent = state.data.playerName || 'Spieler';
     updateSidebarAvatar(state.data.playerName);
     initSidebarIcons();
     applyTheme(state.data.ui || (state.data.config && state.data.config.ui));
+    updateAccountLabel();
     updateTabsVisibility();
 
     var root = document.getElementById('billing-root');
@@ -1626,6 +1993,9 @@ window.addEventListener('message', function(e) {
 
 document.getElementById('btn-close').onclick = closeMenu;
 document.getElementById('detail-close').onclick = closeDetailModal;
+
+var accountSwitch = document.getElementById('account-switch');
+if (accountSwitch) accountSwitch.onclick = toggleAccountMode;
 
 document.querySelectorAll('.sidebar-item').forEach(function(tab) {
     tab.addEventListener('click', function() {

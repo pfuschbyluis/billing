@@ -249,6 +249,42 @@ RegisterNUICallback('deleteInvoice', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('lookupIdentifier', function(data, cb)
+    ESX.TriggerServerCallback('esx_rechnungen:lookupIdentifier', function(result)
+        cb(result)
+    end, data.identifier)
+end)
+
+RegisterNUICallback('saveContact', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:saveContact', data)
+    cb('ok')
+end)
+
+RegisterNUICallback('deleteContact', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:deleteContact', data.contactId)
+    cb('ok')
+end)
+
+RegisterNUICallback('saveTemplate', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:saveTemplate', data)
+    cb('ok')
+end)
+
+RegisterNUICallback('deleteTemplate', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:deleteTemplate', data.templateId)
+    cb('ok')
+end)
+
+RegisterNUICallback('saveUserPrefs', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:saveUserPrefs', data)
+    cb('ok')
+end)
+
+RegisterNUICallback('payAllInvoices', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:payAllInvoices', data)
+    cb('ok')
+end)
+
 RegisterNUICallback('getAllJobs', function(_, cb)
     ESX.TriggerServerCallback('esx_rechnungen:getAllJobs', function(jobs)
         cb(jobs or {})

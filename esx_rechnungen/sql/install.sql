@@ -102,4 +102,42 @@ INSERT IGNORE INTO `rechnungen_settings` (`setting_key`, `setting_value`) VALUES
     ('admin_can_edit', 'true'),
     ('admin_can_delete', 'true'),
     ('admin_can_cancel', 'true'),
-    ('rejection_enabled', 'true'),
+    ('rejection_enabled', 'true');
+
+-- Gespeicherte Kontakte (schnelle Empfängerauswahl)
+CREATE TABLE IF NOT EXISTS `rechnungen_contacts` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `owner_identifier` VARCHAR(60) NOT NULL,
+    `contact_name` VARCHAR(100) NOT NULL,
+    `contact_identifier` VARCHAR(60) NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `owner_contact` (`owner_identifier`, `contact_identifier`),
+    KEY `owner_identifier` (`owner_identifier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rechnungsvorlagen (persönlich & Job-geteilt)
+CREATE TABLE IF NOT EXISTS `rechnungen_templates` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `owner_identifier` VARCHAR(60) NOT NULL,
+    `job_name` VARCHAR(50) DEFAULT NULL,
+    `is_shared` TINYINT(1) NOT NULL DEFAULT 0,
+    `name` VARCHAR(100) NOT NULL,
+    `title` VARCHAR(200) DEFAULT NULL,
+    `notes` TEXT DEFAULT NULL,
+    `line_items` JSON DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `owner_identifier` (`owner_identifier`),
+    KEY `job_name` (`job_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Benutzereinstellungen (Theme, Ansicht, Konto)
+CREATE TABLE IF NOT EXISTS `rechnungen_user_prefs` (
+    `identifier` VARCHAR(60) NOT NULL,
+    `theme` VARCHAR(10) NOT NULL DEFAULT 'dark',
+    `view_mode` VARCHAR(10) NOT NULL DEFAULT 'table',
+    `account_mode` VARCHAR(10) NOT NULL DEFAULT 'personal',
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`identifier`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
