@@ -1731,3 +1731,100 @@ body.theme-light .sidebar-item:hover { background: rgba(0, 0, 0, 0.04); }
 .lookup-status.offline { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); }
 
 .lookup-actions { display: flex; gap: 8px; }
+
+/* Rechnungstyp-Umschalter im Erstellen-Menü */
+.invoice-type-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 4px 0 14px;
+}
+
+.invoice-type-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+
+.type-toggle {
+    display: flex;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 4px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+}
+
+.type-btn {
+    border: none;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.14s;
+}
+
+.type-btn.active { background: var(--accent); color: #06210f; }
+
+.btn-invoice-tpl {
+    background: transparent;
+    border: 1px solid var(--border-light);
+    color: var(--text-dim);
+}
+
+.btn-invoice-tpl:hover { color: var(--text); border-color: var(--accent); }
+
+/* Template-Karten Aktionen + Editor */
+.template-card { position: relative; }
+
+.template-card-actions {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    gap: 6px;
+}
+
+.template-card-actions button {
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.14s;
+}
+
+.template-card-actions button:hover { color: var(--text); border-color: var(--accent); }
+.template-card-actions .tpl-del:hover { color: var(--danger); border-color: var(--danger); }
+
+.tpl-editor {
+    max-width: 640px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+}
+
+.tpl-editor .form-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 6px; }
+.tpl-editor .form-group label,
+.tpl-editor > label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+}
+.tpl-editor textarea.license-input { resize: vertical; font-family: inherit; }
+
+.contact-card .lookup-avatar { width: 38px; height: 38px; }

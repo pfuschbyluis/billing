@@ -1101,11 +1101,13 @@ function renderContacts() {
     } else {
         listEl.innerHTML = filtered.map(function(c) {
             return '<div class="contact-card">' +
+                '<div class="lookup-avatar">' + iconHtml('user', 18) + '</div>' +
                 '<div class="contact-card-main"><strong>' + esc(c.contact_name) + '</strong>' +
                 '<span class="contact-id">' + esc(c.contact_identifier) + '</span></div>' +
                 '<div class="contact-card-actions">' +
-                '<button class="btn btn-ghost btn-use-contact" data-id="' + c.contact_identifier + '" type="button">Rechnung</button>' +
-                '<button class="btn btn-icon btn-del-contact" data-id="' + c.id + '" type="button">' + iconHtml('trash', 14) + '</button>' +
+                '<button class="btn btn-ghost btn-sm btn-use-contact" data-id="' + esc(c.contact_identifier) + '" type="button">Rechnung</button>' +
+                '<button class="btn btn-icon btn-edit-contact" data-id="' + c.id + '" data-name="' + esc(c.contact_name) + '" type="button" title="Bearbeiten">' + iconHtml('edit', 14) + '</button>' +
+                '<button class="btn btn-icon btn-del-contact" data-id="' + c.id + '" data-idf="' + esc(c.contact_identifier) + '" type="button" title="Löschen">' + iconHtml('trash', 14) + '</button>' +
                 '</div></div>';
         }).join('');
     }
@@ -1128,8 +1130,24 @@ function renderContacts() {
 
     listEl.querySelectorAll('.btn-del-contact').forEach(function(btn) {
         btn.onclick = function() {
-            nuiFetch('deleteContact', { contactId: parseInt(btn.dataset.id) });
-            setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+            showConfirm('Kontakt löschen?', { title: 'Löschen', danger: true, confirmText: 'Löschen' }).then(function(ok) {
+                if (!ok) return;
+                nuiFetch('deleteContact', { contactId: parseInt(btn.dataset.id) });
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+            });
+        };
+    });
+
+    listEl.querySelectorAll('.btn-edit-contact').forEach(function(btn) {
+        btn.onclick = function() {
+            showPrompt('Neuer Anzeigename:', btn.dataset.name, { title: 'Kontakt bearbeiten' }).then(function(name) {
+                if (!name) return;
+                var c = contacts.find(function(x) { return String(x.id) === btn.dataset.id; });
+                if (!c) return;
+                nuiFetch('saveContact', { contact_identifier: c.contact_identifier, contact_name: name.trim() });
+                showToast('Kontakt aktualisiert', 'success');
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+            });
         };
     });
 
@@ -1203,7 +1221,8 @@ function renderTemplates() {
     }
 
     document.getElementById('billing-body').innerHTML =
-        '<div class="page-header"><div><h2>Vorlagen</h2><p class="page-subtitle">Persönliche und Job-Vorlagen</p></div></div>' +
+        '<div class="page-header"><div><h2>Vorlagen</h2><p class="page-subtitle">Persönliche und Job-Vorlagen</p></div>' +
+        '<button class="btn btn-primary" id="btn-new-tpl" type="button">' + iconHtml('plus', 14) + ' Neue Vorlage</button></div>' +
         '<div class="list-toolbar"><div class="search-wrap">' + iconHtml('search', 14) +
         '<input class="search-input" id="template-search" type="text" placeholder="Vorlagen suchen..." value="' + esc(state.templateSearch) + '"></div></div>' +
         '<div class="template-grid" id="template-grid"></div>';
@@ -1222,8 +1241,14 @@ function renderTemplates() {
             var preview = (tpl.items || []).map(function(it) {
                 return it.description + ' (' + formatMoneyShort((it.units || 1) * (it.price || 0)) + ')';
             }).join(', ');
-            return '<div class="template-card" data-idx="' + idx + '">' +
-                '<h4>' + esc(tpl.name) + (tpl.is_shared ? ' <span class="tag tag-sent">Job</span>' : '') + '</h4>' +
+            var badge = tpl.is_shared ? ' <span class="tag tag-sent">Job</span>' : (tpl.is_custom ? ' <span class="tag tag-received">Persönlich</span>' : '');
+            var actions = tpl.is_custom
+                ? '<div class="template-card-actions">' +
+                  '<button class="tpl-edit" data-id="' + tpl.id + '" type="button" title="Bearbeiten">' + iconHtml('edit', 13) + '</button>' +
+                  '<button class="tpl-del" data-id="' + tpl.id + '" type="button" title="Löschen">' + iconHtml('trash', 13) + '</button></div>'
+                : '';
+            return '<div class="template-card" data-idx="' + idx + '">' + actions +
+                '<h4>' + esc(tpl.name) + badge + '</h4>' +
                 '<p>' + esc(tpl.notes || 'Schnellvorlage für häufige Rechnungen') + '</p>' +
                 '<div class="template-preview">' + esc(preview) + '</div></div>';
         }).join('');
@@ -1234,12 +1259,116 @@ function renderTemplates() {
         renderTemplates();
     };
 
+    document.getElementById('btn-new-tpl').onclick = function() { openTemplateEditor(null); };
+
     grid.querySelectorAll('.template-card').forEach(function(card) {
-        card.onclick = function() {
+        card.onclick = function(e) {
+            if (e.target.closest('.template-card-actions')) return;
             state.pendingTemplate = parseInt(card.dataset.idx);
             setActiveTab('create');
         };
     });
+
+    grid.querySelectorAll('.tpl-edit').forEach(function(btn) {
+        btn.onclick = function(e) {
+            e.stopPropagation();
+            var tpl = templates.find(function(t) { return String(t.id) === btn.dataset.id; });
+            if (tpl) openTemplateEditor(tpl);
+        };
+    });
+
+    grid.querySelectorAll('.tpl-del').forEach(function(btn) {
+        btn.onclick = function(e) {
+            e.stopPropagation();
+            showConfirm('Vorlage löschen?', { title: 'Löschen', danger: true, confirmText: 'Löschen' }).then(function(ok) {
+                if (!ok) return;
+                nuiFetch('deleteTemplate', { templateId: parseInt(btn.dataset.id) });
+                showToast('Vorlage gelöscht', 'success');
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 400);
+            });
+        };
+    });
+}
+
+function openTemplateEditor(tpl) {
+    state.tplEditItems = (tpl && tpl.items && tpl.items.length) ? JSON.parse(JSON.stringify(tpl.items)) : [{ description: '', units: 1, price: 0 }];
+
+    document.getElementById('billing-body').innerHTML =
+        '<div class="page-header"><div><h2>' + (tpl ? 'Vorlage bearbeiten' : 'Neue Vorlage') + '</h2>' +
+        '<p class="page-subtitle">Fülle die Vorlageninformationen aus</p></div>' +
+        '<button class="btn btn-ghost" id="tpl-back" type="button">Zurück</button></div>' +
+        '<div class="tpl-editor">' +
+        '<div class="form-group"><label>Name der Vorlage</label><input id="tpl-name" class="license-input" value="' + esc(tpl ? tpl.name : '') + '" placeholder="z.B. Standardreparatur"></div>' +
+        '<div class="form-group"><label>Titel (optional)</label><input id="tpl-title" class="license-input" value="' + esc(tpl ? (tpl.title || '') : '') + '" placeholder="Rechnungstitel"></div>' +
+        '<div class="form-group"><label>Notizen</label><textarea id="tpl-notes" class="license-input" rows="2">' + esc(tpl ? (tpl.notes || '') : '') + '</textarea></div>' +
+        '<label>Positionen</label>' +
+        '<table class="invoice-items-table"><thead><tr><th class="col-num">#</th><th>Beschreibung</th><th class="col-units">Menge</th><th class="col-price">Preis</th></tr></thead>' +
+        '<tbody id="tpl-items-body"></tbody></table>' +
+        '<button class="btn-add-row" id="tpl-add-item" type="button">+ Position hinzufügen</button>' +
+        '<label class="check-row" style="margin-top:14px"><input type="checkbox" id="tpl-shared"' + (tpl && tpl.is_shared ? ' checked' : '') + '> Mit dem gesamten Job teilen</label>' +
+        '<div class="btn-row" style="margin-top:16px">' +
+        '<button class="btn btn-primary" id="tpl-save" type="button">' + iconHtml('save', 14) + ' Speichern</button></div>' +
+        '</div>';
+
+    function renderTplItems() {
+        var tbody = document.getElementById('tpl-items-body');
+        tbody.innerHTML = '';
+        state.tplEditItems.forEach(function(item, i) {
+            var tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="col-num"><button class="btn-row-remove" type="button" data-i="' + i + '">×</button></td>' +
+                '<td><input type="text" class="tpl-desc" data-i="' + i + '" value="' + esc(item.description || '') + '" placeholder="Beschreibung"></td>' +
+                '<td class="col-units"><input type="number" class="tpl-units" data-i="' + i + '" value="' + (item.units || 1) + '" min="1"></td>' +
+                '<td class="col-price"><input type="number" class="tpl-price" data-i="' + i + '" value="' + (item.price || 0) + '" min="0" step="0.01"></td>';
+            tbody.appendChild(tr);
+        });
+        tbody.querySelectorAll('.btn-row-remove').forEach(function(b) {
+            b.onclick = function() {
+                var i = parseInt(b.dataset.i);
+                if (state.tplEditItems.length > 1) state.tplEditItems.splice(i, 1);
+                syncTplItems(); renderTplItems();
+            };
+        });
+        ['tpl-desc', 'tpl-units', 'tpl-price'].forEach(function(cls) {
+            tbody.querySelectorAll('.' + cls).forEach(function(inp) {
+                inp.oninput = function() { syncTplItems(); };
+            });
+        });
+    }
+
+    function syncTplItems() {
+        var tbody = document.getElementById('tpl-items-body');
+        tbody.querySelectorAll('tr').forEach(function(tr, i) {
+            if (!state.tplEditItems[i]) return;
+            state.tplEditItems[i].description = tr.querySelector('.tpl-desc').value;
+            state.tplEditItems[i].units = parseInt(tr.querySelector('.tpl-units').value) || 1;
+            state.tplEditItems[i].price = parseFloat(tr.querySelector('.tpl-price').value) || 0;
+        });
+    }
+
+    renderTplItems();
+
+    document.getElementById('tpl-back').onclick = function() { setActiveTab('templates'); };
+    document.getElementById('tpl-add-item').onclick = function() {
+        syncTplItems();
+        state.tplEditItems.push({ description: '', units: 1, price: 0 });
+        renderTplItems();
+    };
+    document.getElementById('tpl-save').onclick = function() {
+        syncTplItems();
+        var name = document.getElementById('tpl-name').value.trim();
+        if (!name) { showToast('Bitte gib einen Namen ein.', 'warning'); return; }
+        nuiFetch('saveTemplate', {
+            id: tpl ? tpl.id : undefined,
+            name: name,
+            title: document.getElementById('tpl-title').value.trim(),
+            notes: document.getElementById('tpl-notes').value.trim(),
+            line_items: state.tplEditItems,
+            is_shared: document.getElementById('tpl-shared').checked
+        });
+        showToast('Vorlage gespeichert', 'success');
+        setTimeout(function() { refreshDashboard(function() { setActiveTab('templates'); }); }, 400);
+    };
 }
 
 function barRow(label, val, max, cls) {
@@ -1311,12 +1440,21 @@ function renderCreate() {
         '<div class="invoice-field invoice-field-wide hidden" id="society-recipient-wrap"><label>FIRMA</label>' +
         '<input type="text" id="society-search" class="license-input" placeholder="Firma suchen...">' +
         '<select id="inv-society"><option value="">Lädt...</option></select></div>' +
+        '<div class="invoice-field invoice-field-wide"><label>TITEL</label>' +
+        '<input type="text" id="inv-title" class="license-input" placeholder="z.B. Fahrzeugreparatur" maxlength="120"></div>' +
         '<div class="invoice-field"><label>FRIST</label>' +
-        '<select id="inv-duration">' + durationHtml + '</select></div>' +
+        '<select id="inv-duration">' + durationHtml + '<option value="custom">Benutzerdefiniert…</option></select>' +
+        '<input type="date" id="inv-duedate" class="license-input hidden" style="margin-top:8px"></div>' +
         '<div class="invoice-field"><label>VORLAGE</label>' +
         '<select id="inv-template"><option value="">Vorlage wählen</option>' +
         templates.map(function(t, i) { return '<option value="' + i + '">' + esc(t.name) + '</option>'; }).join('') +
         '</select></div></div>' +
+        '<div class="invoice-type-row">' +
+        '<span class="invoice-type-label">Rechnungstyp</span>' +
+        '<div class="type-toggle">' +
+        '<button class="type-btn active" data-type="single" type="button">Einzelposten</button>' +
+        '<button class="type-btn" data-type="multi" type="button">Mehrere Positionen</button>' +
+        '</div></div>' +
         '<table class="invoice-items-table"><thead><tr>' +
         '<th class="col-num">#</th><th>Beschreibung</th><th class="col-units">Menge</th><th class="col-price">Preis</th>' +
         '</tr></thead><tbody id="invoice-items-body"></tbody></table>' +
@@ -1334,6 +1472,7 @@ function renderCreate() {
         '<button class="btn-sig-clear" id="sig-clear" type="button">×</button></div></div>' +
         '<div class="invoice-actions">' +
         '<button class="btn-invoice btn-invoice-cancel" id="inv-cancel" type="button">ABBRECHEN</button>' +
+        '<button class="btn-invoice btn-invoice-tpl" id="inv-save-tpl" type="button">ALS VORLAGE</button>' +
         '<button class="btn-invoice btn-invoice-create" id="inv-submit" type="button">ERSTELLEN</button>' +
         '</div></div></div></div>';
 
@@ -1385,13 +1524,63 @@ function renderCreate() {
         var tpl = templates[parseInt(idx)];
         if (!tpl) return;
         document.getElementById('inv-notes').value = tpl.notes || '';
-        renderLineItems(tpl.items || [{ description: '', units: 1, price: 0 }]);
+        if (tpl.title) document.getElementById('inv-title').value = tpl.title;
+        var items = tpl.items || [{ description: '', units: 1, price: 0 }];
+        renderLineItems(items);
         updateInvoiceTotals(taxRate);
+        state.invoiceType = items.length > 1 ? 'multi' : 'single';
+        syncTypeToggle();
     };
 
     document.getElementById('btn-add-item').onclick = function() {
         addLineItemRow('', 1, 0);
         updateInvoiceTotals(taxRate);
+        state.invoiceType = 'multi';
+        syncTypeToggle();
+    };
+
+    document.getElementById('inv-duration').onchange = function() {
+        var custom = this.value === 'custom';
+        document.getElementById('inv-duedate').classList.toggle('hidden', !custom);
+    };
+
+    state.invoiceType = 'single';
+    function syncTypeToggle() {
+        document.querySelectorAll('.type-btn').forEach(function(b) {
+            b.classList.toggle('active', b.dataset.type === state.invoiceType);
+        });
+        document.getElementById('btn-add-item').classList.toggle('hidden', state.invoiceType === 'single');
+    }
+    document.querySelectorAll('.type-btn').forEach(function(btn) {
+        btn.onclick = function() {
+            state.invoiceType = btn.dataset.type;
+            if (state.invoiceType === 'single') {
+                var items = collectLineItems();
+                renderLineItems([items[0] || { description: '', units: 1, price: 0 }]);
+                updateInvoiceTotals(taxRate);
+            }
+            syncTypeToggle();
+        };
+    });
+
+    document.getElementById('inv-save-tpl').onclick = function() {
+        var items = collectLineItems();
+        if (items.length === 0) { showToast('Füge zuerst Positionen hinzu.', 'warning'); return; }
+        var defaultName = document.getElementById('inv-title').value.trim() || (items[0] && items[0].description) || 'Vorlage';
+        showPrompt('Name der Vorlage:', defaultName, { title: 'Als Vorlage speichern' }).then(function(name) {
+            if (!name) return;
+            showConfirm('Mit dem Job teilen? (Sonst nur für dich)', { title: 'Vorlage teilen', confirmText: 'Job-Vorlage', cancelText: 'Persönlich' }).then(function(shared) {
+                nuiFetch('saveTemplate', {
+                    name: name.trim(),
+                    title: document.getElementById('inv-title').value.trim(),
+                    notes: document.getElementById('inv-notes').value.trim(),
+                    line_items: items,
+                    is_shared: shared
+                });
+                showToast('Vorlage gespeichert', 'success');
+                setTimeout(function() { refreshDashboard(); }, 400);
+            });
+        });
     };
 
     document.getElementById('inv-submit').onclick = function() {
@@ -1402,6 +1591,7 @@ function renderCreate() {
     initSignaturePad();
     loadCreateRecipients(s);
     updateInvoiceTotals(taxRate);
+    syncTypeToggle();
 
     if (state.pendingTemplate !== null && state.pendingTemplate !== undefined) {
         var tplIdx = state.pendingTemplate;
@@ -1653,16 +1843,27 @@ function submitInvoiceForm(createData, settings, taxRate) {
     }
 
     var parts = recipientVal.split(':');
+    var durationVal = document.getElementById('inv-duration').value;
     var payload = {
         recipient_type: parts[0],
         line_items: items,
         net_amount: subtotal,
         tax_rate: taxRate,
         notes: document.getElementById('inv-notes').value.trim(),
-        duration_days: parseInt(document.getElementById('inv-duration').value) || 7,
         issuer_mode: document.getElementById('inv-issuer').value,
         signature: getSignatureData()
     };
+
+    if (durationVal === 'custom') {
+        var customDate = document.getElementById('inv-duedate').value;
+        if (!customDate) {
+            showToast('Bitte wähle ein Fälligkeitsdatum.', 'warning');
+            return;
+        }
+        payload.due_date = customDate;
+    } else {
+        payload.duration_days = parseInt(durationVal) || 7;
+    }
 
     if (parts[0] === 'player') {
         if (parts[1] === 'identifier') {
@@ -1672,10 +1873,15 @@ function submitInvoiceForm(createData, settings, taxRate) {
         }
     } else payload.society_name = parts[1];
 
-    var reasons = items.map(function(i) {
-        return i.description + (i.units > 1 ? ' (' + i.units + 'x)' : '');
-    });
-    payload.reason = reasons.join(', ');
+    var title = document.getElementById('inv-title').value.trim();
+    if (title) {
+        payload.reason = title;
+    } else {
+        var reasons = items.map(function(i) {
+            return i.description + (i.units > 1 ? ' (' + i.units + 'x)' : '');
+        });
+        payload.reason = reasons.join(', ');
+    }
 
     document.getElementById('inv-submit').disabled = true;
     nuiFetch('createInvoice', payload);

@@ -1176,10 +1176,20 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     local prefix = societyData and societyData.invoice_prefix or GetGlobalSetting('invoice_prefix', 'RE')
     local invoiceNumber = GenerateInvoiceNumber(prefix)
 
-    -- Fälligkeitsdatum
-    local durationDays = tonumber(data.duration_days) or GetGlobalSetting('payment_deadline_days', 14)
-    durationDays = math.max(1, math.min(durationDays, 365))
-    local dueDate = os.date('%Y-%m-%d', os.time() + (durationDays * 86400))
+    -- Fälligkeitsdatum (Preset oder benutzerdefiniert)
+    local durationDays
+    local dueDate
+    local customDue = tostring(data.due_date or '')
+    if customDue:match('^%d%d%d%d%-%d%d%-%d%d$') then
+        dueDate = customDue
+        local y, m, dd = customDue:match('^(%d+)%-(%d+)%-(%d+)$')
+        local dueTime = os.time({ year = tonumber(y), month = tonumber(m), day = tonumber(dd), hour = 12 })
+        durationDays = math.max(1, math.floor((dueTime - os.time()) / 86400) + 1)
+    else
+        durationDays = tonumber(data.duration_days) or GetGlobalSetting('payment_deadline_days', 14)
+        durationDays = math.max(1, math.min(durationDays, 365))
+        dueDate = os.date('%Y-%m-%d', os.time() + (durationDays * 86400))
+    end
 
     -- Aussteller
     local issuerMode = data.issuer_mode == 'company' and 'company' or 'personal'
