@@ -122,6 +122,33 @@ local function InstallDatabase()
     return failCount == 0
 end
 
+--- Führt Schema-Migrationen für bestehende Installationen aus
+local function RunMigrations()
+    local migrations = {
+        "ALTER TABLE rechnungen_invoices ADD COLUMN notes TEXT DEFAULT NULL",
+        "ALTER TABLE rechnungen_invoices ADD COLUMN line_items JSON DEFAULT NULL",
+        "ALTER TABLE rechnungen_invoices ADD COLUMN signature MEDIUMTEXT DEFAULT NULL",
+        "ALTER TABLE rechnungen_invoices ADD COLUMN duration_days INT DEFAULT NULL",
+        "ALTER TABLE rechnungen_invoices ADD COLUMN issuer_mode VARCHAR(20) DEFAULT 'personal'"
+    }
+
+    for _, statement in ipairs(migrations) do
+        pcall(function()
+            MySQL.query.await(statement)
+        end)
+    end
+end
+
+--- Standard-Vorlagen für Rechnungserstellung
+---@return table
+local function GetDefaultTemplates()
+    return {
+        { name = 'Reparatur', items = { { description = 'Reparatur', units = 1, price = 100 } }, notes = '' },
+        { name = 'Dienstleistung', items = { { description = 'Dienstleistung', units = 1, price = 250 } }, notes = '' },
+        { name = 'Material', items = { { description = 'Material', units = 1, price = 50 } }, notes = '' }
+    }
+end
+
 --- Debug-Ausgabe nur wenn Config.Debug aktiv
 local function DebugPrint(...)
     if Config.Debug then
@@ -370,6 +397,8 @@ MySQL.ready(function()
         if not dbOk then
             ConsoleLog('error', 'Script läuft weiter, aber einige Datenbank-Tabellen fehlen möglicherweise!')
         end
+
+        RunMigrations()
 
         LoadGlobalSettings()
         LoadJobSettings()
@@ -710,8 +739,36 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
         return
     end
 
-    -- Validierung: Betrag
-    local netAmount = tonumber(data.net_amount)
+    -- Validierung: Betrag & Positionen
+    local netAmount = nil
+    local lineItems = data.line_items
+    local reason = tostring(data.reason or ''):sub(1, 500)
+
+    if type(lineItems) == 'table' and #lineItems > 0 then
+        netAmount = 0
+        local reasons = {}
+
+        for _, item in ipairs(lineItems) do
+            local units = tonumber(item.units) or 1
+            local price = tonumber(item.price) or 0
+            local desc = tostring(item.description or 'Position'):sub(1, 200)
+
+            if units < 1 or price < 0 then
+                Notify(source, 'Ungültige Positionsdaten.', 'error')
+                return
+            end
+
+            netAmount = netAmount + (units * price)
+            table.insert(reasons, desc .. (units > 1 and (' (' .. units .. 'x)') or ''))
+        end
+
+        if reason == '' then
+            reason = table.concat(reasons, ', '):sub(1, 500)
+        end
+    else
+        netAmount = tonumber(data.net_amount)
+    end
+
     if not netAmount or netAmount <= 0 then
         Notify(source, 'Ungültiger Rechnungsbetrag.', 'error')
         return
@@ -725,10 +782,15 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     end
 
     -- Validierung: Rechnungsgrund
-    local reason = tostring(data.reason or ''):sub(1, 500)
     if reason == '' then
         Notify(source, 'Bitte gib einen Rechnungsgrund an.', 'error')
         return
+    end
+
+    local notes = tostring(data.notes or ''):sub(1, 2000)
+    local signature = data.signature
+    if type(signature) == 'string' and #signature > 500000 then
+        signature = signature:sub(1, 500000)
     end
 
     -- Validierung: Empfänger
@@ -792,23 +854,36 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     local invoiceNumber = GenerateInvoiceNumber(prefix)
 
     -- Fälligkeitsdatum
-    local deadlineDays = GetGlobalSetting('payment_deadline_days', 14)
-    local dueDate = os.date('%Y-%m-%d', os.time() + (deadlineDays * 86400))
+    local durationDays = tonumber(data.duration_days) or GetGlobalSetting('payment_deadline_days', 14)
+    durationDays = math.max(1, math.min(durationDays, 365))
+    local dueDate = os.date('%Y-%m-%d', os.time() + (durationDays * 86400))
+
+    -- Aussteller
+    local issuerMode = data.issuer_mode == 'company' and 'company' or 'personal'
+    local issuerName = xPlayer.getName()
+    if issuerMode == 'company' then
+        issuerName = (societyData and societyData.company_name) or job.label
+    end
+
+    local lineItemsJson = nil
+    if type(lineItems) == 'table' and #lineItems > 0 then
+        lineItemsJson = json.encode(lineItems)
+    end
 
     -- In Datenbank speichern
     local issuerSociety = job.name
-    local issuerCompany = societyData and societyData.company_name or job.label
 
     MySQL.insert.await([[
         INSERT INTO rechnungen_invoices
             (invoice_number, issuer_identifier, issuer_name, issuer_job, issuer_society,
              recipient_type, recipient_identifier, recipient_name, reason,
-             net_amount, tax_rate, tax_amount, gross_amount, due_date, reminder_fee)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             net_amount, tax_rate, tax_amount, gross_amount, due_date, reminder_fee,
+             notes, line_items, signature, duration_days, issuer_mode)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ]], {
         invoiceNumber,
         xPlayer.identifier,
-        xPlayer.getName(),
+        issuerName,
         job.name,
         issuerSociety,
         recipientType,
@@ -820,7 +895,12 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
         taxAmount,
         grossAmount,
         dueDate,
-        GetGlobalSetting('reminder_fee', 25.0)
+        GetGlobalSetting('reminder_fee', 25.0),
+        notes ~= '' and notes or nil,
+        lineItemsJson,
+        signature,
+        durationDays,
+        issuerMode
     })
 
     Notify(source, ('Rechnung %s erfolgreich erstellt.'):format(invoiceNumber), 'success')
@@ -987,7 +1067,7 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
     local jobSettings = GetJobSettings(job.name)
     if jobSettings and jobSettings.can_issue == 1 then
         canCreate = true
-        createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name] }
+        createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name], templates = GetDefaultTemplates() }
     end
 
     cb({

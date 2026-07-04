@@ -47,10 +47,20 @@ Mit **F7** öffnet sich das zentrale Billing-Panel:
 
 - **Übersicht** – Statistik-Karten, Rechnungsliste (Erstellt/Empfangen), Suche & Filter
 - **Statistik** – Status-Verteilung und Tageswerte
-- **Rechnung erstellen** – 3-Schritt-Assistent (Empfänger → Auswahl → Formular)
+- **Rechnung erstellen** – Papier-Layout mit Positionen, Vorlagen, Notizen und Unterschrift
 - **Admin** – Rechnungen, Jobs, Firmen, Systemeinstellungen (nur Admins)
 
 F7 erneut drücken schließt das Dashboard.
+
+### Rechnung erstellen (Papier-UI)
+
+Beim Tab **Rechnung erstellen** erscheint ein weißes Papier-Formular:
+
+- Aussteller (Persönlich / Firma), Empfänger, Zahlungsfrist, Vorlage
+- Positionstabelle mit Beschreibung, Menge und Preis
+- Live-Berechnung: Zwischensumme, Steuer, Gesamt
+- Notizen und Unterschrift (Pflicht vor dem Erstellen)
+- ABBRECHEN zurück zur Übersicht · ERSTELLEN sendet an den Server
 
 ## Konfiguration (`config.lua`)
 

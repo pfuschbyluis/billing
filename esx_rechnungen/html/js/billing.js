@@ -9,9 +9,8 @@ var state = {
     search: '',
     data: null,
     adminTab: 'invoices',
-    createStep: 1,
-    createType: null,
-    createTarget: null,
+    createRecipients: { players: [], societies: [] },
+    signatureDirty: false,
     adminInvoices: [],
     jobs: [],
     jobSettings: {},
@@ -99,6 +98,15 @@ function updateTabsVisibility() {
 
 function setActiveTab(tab) {
     state.tab = tab;
+    var panel = document.getElementById('billing-panel');
+    var header = document.querySelector('.billing-header');
+    var tabs = document.getElementById('billing-tabs');
+    var isCreate = tab === 'create' && state.data && state.data.canCreate;
+
+    if (panel) panel.classList.toggle('invoice-create-mode', isCreate);
+    if (header) header.classList.toggle('hidden', isCreate);
+    if (tabs) tabs.classList.toggle('hidden', isCreate);
+
     document.querySelectorAll('.billing-tab').forEach(function(t) {
         t.classList.toggle('active', t.dataset.tab === tab);
     });
@@ -281,6 +289,18 @@ function openDetailModal(inv, canPay) {
     body += detailRow('Aussteller', inv.issuer_name || '-');
     body += detailRow('Empfänger', inv.recipient_name || '-');
     body += detailRow('Grund', inv.reason || '-');
+    if (inv.notes) body += detailRow('Notizen', inv.notes);
+    if (inv.line_items) {
+        try {
+            var items = typeof inv.line_items === 'string' ? JSON.parse(inv.line_items) : inv.line_items;
+            if (items && items.length) {
+                body += '<div class="section-title" style="margin-top:12px">POSITIONEN</div>';
+                items.forEach(function(item) {
+                    body += detailRow(esc(item.description || '-'), (item.units || 1) + ' × ' + formatMoney(item.price || 0));
+                });
+            }
+        } catch (e) { /* ignore */ }
+    }
     body += detailRow('Erstellt', formatDate(inv.created_at));
     body += detailRow('Fällig', formatDate(inv.due_date));
     body += detailRow('Netto', formatMoney(inv.net_amount));
@@ -362,168 +382,350 @@ function barRow(label, val, max, cls) {
 }
 
 // ============================================================
-// RECHNUNG ERSTELLEN
+// RECHNUNG ERSTELLEN (Papier-Layout)
 // ============================================================
+
+var DEFAULT_TEMPLATES = [
+    { name: 'Reparatur', items: [{ description: 'Reparatur', units: 1, price: 100 }], notes: '' },
+    { name: 'Dienstleistung', items: [{ description: 'Dienstleistung', units: 1, price: 250 }], notes: '' },
+    { name: 'Material', items: [{ description: 'Material', units: 1, price: 50 }], notes: '' }
+];
 
 function renderCreate() {
     var d = state.data || {};
     if (!d.canCreate || !d.createData) {
+        document.getElementById('billing-panel').classList.remove('invoice-create-mode');
+        document.querySelector('.billing-header').classList.remove('hidden');
+        document.getElementById('billing-tabs').classList.remove('hidden');
         document.getElementById('billing-body').innerHTML =
             '<div class="empty-state"><div class="icon-wrap">' + iconHtml('x', 40) + '</div>' +
             'Du darfst mit deinem aktuellen Job keine Rechnungen ausstellen.<br>Bitte wende dich an einen Administrator.</div>';
         return;
     }
 
-    if (state.createStep === 1) renderCreateRecipient();
-    else if (state.createStep === 2) renderCreateTargetList();
-    else if (state.createStep === 3) renderCreateForm();
-}
-
-function renderCreateRecipient() {
-    var data = state.data.createData;
+    var data = d.createData;
     var s = data.settings || {};
-    var jobLabel = data.job ? data.job.label : '';
+    var job = data.job || {};
+    var society = data.societyInfo || {};
+    var playerName = d.playerName || 'Spieler';
+    var companyName = society.company_name || job.label || 'Firma';
+    var taxRate = parseFloat(s.tax_rate) || 19;
+    var templates = data.templates || DEFAULT_TEMPLATES;
 
     document.getElementById('billing-body').innerHTML =
-        '<div class="create-steps">' +
-        '<div class="create-step active">1 · Empfängerart</div>' +
-        '<div class="create-step">2 · Auswahl</div>' +
-        '<div class="create-step">3 · Details</div></div>' +
-        '<div class="section-title">RECHNUNG AUSSTELLEN · ' + esc(jobLabel) + '</div>' +
-        '<div class="admin-grid" id="create-recipient-grid"></div>';
+        '<div class="invoice-stack">' +
+        '<div class="invoice-sheet-back"></div>' +
+        '<div class="invoice-sheet-mid"></div>' +
+        '<div class="invoice-sheet">' +
+        '<header class="invoice-sheet-header">' +
+        '<div class="invoice-sheet-title"><h2>RECHNUNG</h2><p>RECHNUNG ERSTELLEN</p></div>' +
+        '<button class="invoice-sheet-esc" id="invoice-esc" type="button">ESC</button>' +
+        '</header>' +
+        '<div class="invoice-meta-grid">' +
+        '<div class="invoice-field"><label>AUSSTELLER</label>' +
+        '<select id="inv-issuer"><option value="personal">Persönlich</option><option value="company">Firma</option></select>' +
+        '<div class="invoice-field-hint" id="issuer-hint">* ' + esc(playerName) + '</div></div>' +
+        '<div class="invoice-field"><label>EMPFÄNGER</label><select id="inv-recipient"><option value="">Lädt...</option></select></div>' +
+        '<div class="invoice-field"><label>FRIST</label>' +
+        '<select id="inv-duration">' +
+        '<option value="3">3 Tage</option>' +
+        '<option value="7" selected>1 Woche</option>' +
+        '<option value="14">2 Wochen</option>' +
+        '<option value="30">1 Monat</option>' +
+        '</select></div>' +
+        '<div class="invoice-field"><label>VORLAGE</label>' +
+        '<select id="inv-template"><option value="">Vorlage wählen</option>' +
+        templates.map(function(t, i) { return '<option value="' + i + '">' + esc(t.name) + '</option>'; }).join('') +
+        '</select></div></div>' +
+        '<table class="invoice-items-table"><thead><tr>' +
+        '<th class="col-num">#</th><th>Beschreibung</th><th class="col-units">Menge</th><th class="col-price">Preis</th>' +
+        '</tr></thead><tbody id="invoice-items-body"></tbody></table>' +
+        '<button class="btn-add-row" id="btn-add-item" type="button">+ Position hinzufügen</button>' +
+        '<div class="invoice-totals"><div class="invoice-totals-box">' +
+        '<div class="invoice-total-row"><span>Zwischensumme</span><span id="inv-subtotal">0,00 €</span></div>' +
+        '<div class="invoice-total-row"><span>Steuer (' + taxRate + '%)</span><span id="inv-tax">0,00 €</span></div>' +
+        '<div class="invoice-total-row grand"><span>Gesamt</span><span id="inv-total">0,00 €</span></div>' +
+        '</div></div>' +
+        '<div class="invoice-notes"><label>NOTIZEN</label>' +
+        '<textarea id="inv-notes" placeholder="z.B. Privatkauf ohne Gewährleistung"></textarea></div>' +
+        '<div class="invoice-footer-row">' +
+        '<div class="invoice-signature"><label>UNTERSCHRIFT</label>' +
+        '<div class="signature-wrap"><canvas class="signature-canvas" id="sig-canvas" width="280" height="90"></canvas>' +
+        '<button class="btn-sig-clear" id="sig-clear" type="button">×</button></div></div>' +
+        '<div class="invoice-actions">' +
+        '<button class="btn-invoice btn-invoice-cancel" id="inv-cancel" type="button">ABBRECHEN</button>' +
+        '<button class="btn-invoice btn-invoice-create" id="inv-submit" type="button">ERSTELLEN</button>' +
+        '</div></div></div></div>';
 
-    var items = [];
-    if (s.can_issue_player !== 0) items.push({ icon: 'user', title: 'An Spieler', desc: 'Rechnung an nahen Spieler', type: 'player' });
-    if (s.can_issue_society === 1) items.push({ icon: 'building', title: 'An Firma', desc: 'Rechnung an Society', type: 'society' });
+    document.getElementById('invoice-esc').onclick = closeMenu;
+    document.getElementById('inv-cancel').onclick = function() {
+        setActiveTab('overview');
+    };
 
-    var grid = document.getElementById('create-recipient-grid');
-    if (items.length === 0) {
-        grid.innerHTML = '<div class="empty-state">Keine Berechtigung zum Ausstellen.</div>';
+    document.getElementById('inv-issuer').onchange = function() {
+        var hint = document.getElementById('issuer-hint');
+        hint.textContent = this.value === 'company' ? ('* ' + companyName) : ('* ' + playerName);
+    };
+
+    document.getElementById('inv-template').onchange = function() {
+        var idx = this.value;
+        if (idx === '') return;
+        var tpl = templates[parseInt(idx)];
+        if (!tpl) return;
+        document.getElementById('inv-notes').value = tpl.notes || '';
+        renderLineItems(tpl.items || [{ description: '', units: 1, price: 0 }]);
+        updateInvoiceTotals(taxRate);
+    };
+
+    document.getElementById('btn-add-item').onclick = function() {
+        addLineItemRow('', 1, 0);
+        updateInvoiceTotals(taxRate);
+    };
+
+    document.getElementById('inv-submit').onclick = function() {
+        submitInvoiceForm(data, s, taxRate);
+    };
+
+    renderLineItems([{ description: '', units: 1, price: 0 }]);
+    initSignaturePad();
+    loadCreateRecipients(s);
+    updateInvoiceTotals(taxRate);
+}
+
+function loadCreateRecipients(settings) {
+    var select = document.getElementById('inv-recipient');
+    var promises = [];
+
+    if (settings.can_issue_player !== 0) {
+        promises.push(nuiFetch('getNearbyPlayers').then(function(p) { return { type: 'players', data: p || [] }; }));
+    }
+    if (settings.can_issue_society === 1) {
+        promises.push(nuiFetch('getSocieties').then(function(s) { return { type: 'societies', data: s || [] }; }));
+    }
+
+    if (promises.length === 0) {
+        select.innerHTML = '<option value="">Keine Berechtigung</option>';
         return;
     }
 
-    grid.innerHTML = items.map(function(item) {
-        return '<div class="admin-card" data-type="' + item.type + '">' +
-            '<h4>' + iconHtml(item.icon, 14) + ' ' + item.title + '</h4>' +
-            '<p>' + item.desc + '</p></div>';
-    }).join('');
+    Promise.all(promises).then(function(results) {
+        state.createRecipients = { players: [], societies: [] };
+        var html = '<option value="">Empfänger wählen...</option>';
 
-    grid.querySelectorAll('.admin-card').forEach(function(card) {
-        card.onclick = function() {
-            state.createType = card.dataset.type;
-            state.createStep = 2;
-            renderCreate();
+        results.forEach(function(r) {
+            if (r.type === 'players') {
+                state.createRecipients.players = r.data;
+                if (r.data.length) {
+                    html += '<optgroup label="Spieler">';
+                    r.data.forEach(function(p) {
+                        html += '<option value="player:' + p.source + '">' + esc(p.name) + ' (' + p.distance + 'm)</option>';
+                    });
+                    html += '</optgroup>';
+                }
+            } else {
+                state.createRecipients.societies = r.data;
+                if (r.data.length) {
+                    html += '<optgroup label="Firmen">';
+                    r.data.forEach(function(s) {
+                        html += '<option value="society:' + s.name + '">' + esc(s.label) + '</option>';
+                    });
+                    html += '</optgroup>';
+                }
+            }
+        });
+
+        if (html === '<option value="">Empfänger wählen...</option>') {
+            html += '<option value="" disabled>Keine Empfänger verfügbar</option>';
+        }
+        select.innerHTML = html;
+    });
+}
+
+function renderLineItems(items) {
+    var tbody = document.getElementById('invoice-items-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    items.forEach(function(item) {
+        addLineItemRow(item.description || '', item.units || 1, item.price || 0);
+    });
+    if (items.length === 0) addLineItemRow('', 1, 0);
+}
+
+function addLineItemRow(desc, units, price) {
+    var tbody = document.getElementById('invoice-items-body');
+    if (!tbody) return;
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+        '<td class="col-num"><button class="btn-row-remove" type="button" title="Entfernen">×</button></td>' +
+        '<td><input type="text" class="item-desc" value="' + esc(desc) + '" placeholder="Beschreibung" maxlength="200"></td>' +
+        '<td class="col-units"><input type="number" class="item-units" value="' + units + '" min="1" step="1"></td>' +
+        '<td class="col-price"><input type="number" class="item-price" value="' + price + '" min="0" step="0.01"></td>';
+
+    tr.querySelector('.btn-row-remove').onclick = function() {
+        if (tbody.children.length <= 1) {
+            tr.querySelector('.item-desc').value = '';
+            tr.querySelector('.item-units').value = 1;
+            tr.querySelector('.item-price').value = 0;
+        } else {
+            tr.remove();
+        }
+        var taxRate = parseFloat((state.data.createData.settings || {}).tax_rate) || 19;
+        updateInvoiceTotals(taxRate);
+    };
+
+    tr.querySelectorAll('input').forEach(function(inp) {
+        inp.oninput = function() {
+            var taxRate = parseFloat((state.data.createData.settings || {}).tax_rate) || 19;
+            updateInvoiceTotals(taxRate);
         };
     });
+
+    tbody.appendChild(tr);
 }
 
-function renderCreateTargetList() {
-    var fetchFn = state.createType === 'player' ? 'getNearbyPlayers' : 'getSocieties';
-    var title = state.createType === 'player' ? 'Spieler wählen' : 'Firma wählen';
-
-    document.getElementById('billing-body').innerHTML =
-        '<div class="create-steps">' +
-        '<div class="create-step done">1 · Empfängerart</div>' +
-        '<div class="create-step active">2 · Auswahl</div>' +
-        '<div class="create-step">3 · Details</div></div>' +
-        '<div class="section-title">' + title + '</div>' +
-        '<div class="player-pick-list" id="pick-list"><div class="empty-state">Lade...</div></div>' +
-        '<div class="btn-row" style="margin-top:12px"><button class="btn btn-ghost" id="create-back" type="button">' + iconHtml('chevron-left', 14) + ' Zurück</button></div>';
-
-    document.getElementById('create-back').onclick = function() {
-        state.createStep = 1;
-        state.createType = null;
-        renderCreate();
-    };
-
-    nuiFetch(fetchFn).then(function(items) {
-        var list = document.getElementById('pick-list');
-        if (!items || items.length === 0) {
-            list.innerHTML = '<div class="empty-state">Keine Einträge gefunden.</div>';
-            return;
+function collectLineItems() {
+    var items = [];
+    document.querySelectorAll('#invoice-items-body tr').forEach(function(tr) {
+        var desc = tr.querySelector('.item-desc').value.trim();
+        var units = parseInt(tr.querySelector('.item-units').value) || 1;
+        var price = parseFloat(tr.querySelector('.item-price').value) || 0;
+        if (desc || price > 0) {
+            items.push({ description: desc || 'Position', units: units, price: price });
         }
-
-        list.innerHTML = items.map(function(item, i) {
-            var label = item.name || item.label;
-            var sub = state.createType === 'player' ? (item.distance + 'm entfernt') : item.name;
-            return '<div class="pick-item" data-idx="' + i + '"><div><strong>' + esc(label) + '</strong><br><span style="font-size:11px;color:var(--text-muted)">' + esc(sub) + '</span></div>' +
-                iconHtml('chevron-right', 16) + '</div>';
-        }).join('');
-
-        list.querySelectorAll('.pick-item').forEach(function(el) {
-            el.onclick = function() {
-                var idx = parseInt(el.dataset.idx);
-                if (state.createType === 'player') {
-                    state.createTarget = { target_id: items[idx].source };
-                } else {
-                    state.createTarget = { society_name: items[idx].name };
-                }
-                state.createStep = 3;
-                renderCreate();
-            };
-        });
     });
+    return items;
 }
 
-function renderCreateForm() {
-    var data = state.data.createData;
-    var tax = data.settings ? data.settings.tax_rate : 19;
+function updateInvoiceTotals(taxRate) {
+    var items = collectLineItems();
+    var subtotal = 0;
+    items.forEach(function(i) { subtotal += i.units * i.price; });
+    var tax = Math.round(subtotal * taxRate / 100 * 100) / 100;
+    var total = subtotal + tax;
 
-    document.getElementById('billing-body').innerHTML =
-        '<div class="create-steps">' +
-        '<div class="create-step done">1 · Empfängerart</div>' +
-        '<div class="create-step done">2 · Auswahl</div>' +
-        '<div class="create-step active">3 · Details</div></div>' +
-        '<form class="form" id="create-form">' +
-        '<div class="form-group"><label>Rechnungsgrund</label><input id="f-reason" required maxlength="500" placeholder="z.B. Reparatur, Behandlung"></div>' +
-        '<div class="form-row">' +
-        '<div class="form-group"><label>Netto (€)</label><input type="number" id="f-net" min="1" step="0.01" value="100" required></div>' +
-        '<div class="form-group"><label>Steuer (%)</label><input type="number" id="f-tax" min="0" max="100" step="0.1" value="' + tax + '"></div></div>' +
-        '<div class="preview-box" id="tax-preview"></div>' +
-        '<div class="btn-row">' +
-        '<button type="button" class="btn btn-ghost" id="create-back2">' + iconHtml('chevron-left', 14) + ' Zurück</button>' +
-        '<button type="submit" class="btn btn-primary">' + iconHtml('plus', 14) + ' Rechnung ausstellen</button></div></form>';
+    var subEl = document.getElementById('inv-subtotal');
+    var taxEl = document.getElementById('inv-tax');
+    var totEl = document.getElementById('inv-total');
+    if (subEl) subEl.textContent = formatMoney(subtotal);
+    if (taxEl) taxEl.textContent = formatMoney(tax);
+    if (totEl) totEl.textContent = formatMoney(total);
+}
 
-    document.getElementById('create-back2').onclick = function() {
-        state.createStep = 2;
-        renderCreate();
-    };
+function initSignaturePad() {
+    var canvas = document.getElementById('sig-canvas');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var drawing = false;
+    state.signatureDirty = false;
 
-    function updatePreview() {
-        var net = parseFloat(document.getElementById('f-net').value) || 0;
-        var rate = parseFloat(document.getElementById('f-tax').value) || 0;
-        var taxAmt = Math.round(net * rate / 100 * 100) / 100;
-        document.getElementById('tax-preview').innerHTML =
-            detailRow('Netto', formatMoney(net)) +
-            detailRow('MwSt.', formatMoney(taxAmt)) +
-            detailRow('Brutto', formatMoney(net + taxAmt), true);
+    ctx.strokeStyle = '#1a1a24';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+
+    function getPos(e) {
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = canvas.width / rect.width;
+        var scaleY = canvas.height / rect.height;
+        var clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        var clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
     }
 
-    document.getElementById('f-net').oninput = updatePreview;
-    document.getElementById('f-tax').oninput = updatePreview;
-    updatePreview();
-
-    document.getElementById('create-form').onsubmit = function(e) {
+    function startDraw(e) {
         e.preventDefault();
-        var payload = {
-            recipient_type: state.createType,
-            reason: document.getElementById('f-reason').value,
-            net_amount: parseFloat(document.getElementById('f-net').value),
-            tax_rate: parseFloat(document.getElementById('f-tax').value)
-        };
-        if (state.createType === 'player') payload.target_id = state.createTarget.target_id;
-        else payload.society_name = state.createTarget.society_name;
+        drawing = true;
+        var p = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+    }
 
-        nuiFetch('createInvoice', payload);
-        showToast('Rechnung wird erstellt...', 'success');
-        state.createStep = 1;
-        state.createType = null;
-        state.createTarget = null;
+    function draw(e) {
+        if (!drawing) return;
+        e.preventDefault();
+        var p = getPos(e);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        state.signatureDirty = true;
+    }
+
+    function endDraw() { drawing = false; }
+
+    canvas.onmousedown = startDraw;
+    canvas.onmousemove = draw;
+    canvas.onmouseup = endDraw;
+    canvas.onmouseleave = endDraw;
+    canvas.ontouchstart = startDraw;
+    canvas.ontouchmove = draw;
+    canvas.ontouchend = endDraw;
+
+    document.getElementById('sig-clear').onclick = function() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        state.signatureDirty = false;
+    };
+}
+
+function getSignatureData() {
+    var canvas = document.getElementById('sig-canvas');
+    if (!canvas || !state.signatureDirty) return null;
+    try { return canvas.toDataURL('image/png'); } catch (e) { return null; }
+}
+
+function submitInvoiceForm(createData, settings, taxRate) {
+    var recipientVal = document.getElementById('inv-recipient').value;
+    if (!recipientVal) {
+        showToast('Bitte wähle einen Empfänger.', 'warning');
+        return;
+    }
+
+    var items = collectLineItems();
+    if (items.length === 0) {
+        showToast('Bitte füge mindestens eine Position hinzu.', 'warning');
+        return;
+    }
+
+    var subtotal = 0;
+    items.forEach(function(i) { subtotal += i.units * i.price; });
+    if (subtotal <= 0) {
+        showToast('Der Rechnungsbetrag muss größer als 0 sein.', 'warning');
+        return;
+    }
+
+    if (!state.signatureDirty) {
+        showToast('Bitte unterschreibe die Rechnung.', 'warning');
+        return;
+    }
+
+    var parts = recipientVal.split(':');
+    var payload = {
+        recipient_type: parts[0],
+        line_items: items,
+        net_amount: subtotal,
+        tax_rate: taxRate,
+        notes: document.getElementById('inv-notes').value.trim(),
+        duration_days: parseInt(document.getElementById('inv-duration').value) || 7,
+        issuer_mode: document.getElementById('inv-issuer').value,
+        signature: getSignatureData()
+    };
+
+    if (parts[0] === 'player') payload.target_id = parseInt(parts[1]);
+    else payload.society_name = parts[1];
+
+    var reasons = items.map(function(i) {
+        return i.description + (i.units > 1 ? ' (' + i.units + 'x)' : '');
+    });
+    payload.reason = reasons.join(', ');
+
+    document.getElementById('inv-submit').disabled = true;
+    nuiFetch('createInvoice', payload);
+    showToast('Rechnung wird erstellt...', 'success');
+
+    setTimeout(function() {
+        state.signatureDirty = false;
         refreshDashboard(function() {
             setActiveTab('overview');
             state.subTab = 'created';
         });
-    };
+    }, 600);
 }
 
 // ============================================================
@@ -915,9 +1117,7 @@ function openDashboard(data) {
     state.subTab = data.subTab || 'created';
     state.filter = 'all';
     state.search = '';
-    state.createStep = 1;
-    state.createType = null;
-    state.createTarget = null;
+    state.signatureDirty = false;
     state.adminTab = 'invoices';
 
     document.getElementById('billing-player-name').textContent = state.data.playerName || 'Spieler';
