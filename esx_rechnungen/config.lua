@@ -1,13 +1,14 @@
 Config = {}
 
 -- Framework-Einstellungen (nur grundlegende Konfiguration)
-Config.Framework = 'esx'           -- Framework: esx
-Config.Database = 'oxmysql'        -- Datenbank: oxmysql
-Config.Debug = false               -- Debug-Ausgaben in der Konsole
-Config.AutoInstallSQL = true       -- SQL beim Start automatisch ausführen (sql/install.sql)
+Config.Framework = 'esx'
+Config.Database = 'oxmysql'
+Config.Debug = false
+Config.AutoInstallSQL = true
 
--- Menü-System: ox_lib Context-Menüs (nativ im Spiel, kein HTML-Overlay)
-Config.MenuSystem = 'ox_lib'
+-- Custom-Menü Einstellungen
+Config.MenuPosition = 'right'      -- Position: right (Popover rechts im Bild)
+Config.MenuWidth = 420             -- Breite des Menüs in Pixel
 
 -- Admin-Berechtigungen (Gruppen aus ESX)
 Config.AdminGroups = {

@@ -1,17 +1,14 @@
 # ESX Rechnungssystem
 
-Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **ox_lib Menüs** (nativ im Spiel), Steuersystem, Discord-Logging und MySQL-Persistenz.
+Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Custom-Menü**, Steuersystem und MySQL-Persistenz.
 
 ## Features
 
-- **Native ox_lib Menüs** – kein HTML-Overlay, alles direkt im Spiel
-- Context-Menüs, Input-Dialoge und Bestätigungen über ox_lib
-- Ingame-Adminpanel (`/rechnungadmin`)
-- Automatische Rechnungsnummern (z. B. `RE-2026-000001`)
-- Steuersystem mit Netto-, Steuer- und Bruttobeträgen
-- Firmendaten pro Society (Name, Adresse, Steuernummer, USt-IdNr.)
-- Job-spezifische Einstellungen
-- Discord-Webhook-Logging
+- **Eigenes Custom-Menü** – kein ox_lib, kein Browser-Fenster
+- Kompaktes **Popover-Menü** rechts im Bildschirm (slide-in)
+- Listen-Navigation mit Zurück-Button (wie ein natives Spielmenü)
+- SVG-Icons, Ingame-Dialoge und Toasts
+- Adminpanel mit Tabs: Rechnungen, Jobs, Firmen, System
 - Automatische SQL-Installation beim Serverstart
 - Serverseitige Validierung
 
@@ -19,19 +16,19 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **ox_lib Menüs** (nativ
 
 - [es_extended](https://github.com/esx-framework/esx_core) (ESX Legacy)
 - [oxmysql](https://github.com/overextended/oxmysql)
-- [ox_lib](https://github.com/overextended/ox_lib)
 - [esx_addonaccount](https://github.com/esx-framework/esx_addonaccount) (Society-Konten)
+
+**Kein ox_lib erforderlich.**
 
 ## Installation
 
-1. Resource in `resources/[esx]/esx_rechnungen/` kopieren
-2. Sicherstellen, dass **ox_lib** installiert und gestartet ist:
+1. Resource nach `resources/[esx]/esx_rechnungen/` kopieren
+2. In `server.cfg`:
    ```
-   ensure ox_lib
    ensure esx_rechnungen
    ```
-3. Server starten – SQL-Tabellen werden automatisch angelegt
-4. Im Adminpanel Jobs für Rechnungserstellung freischalten
+3. Server starten – SQL wird automatisch importiert
+4. Jobs im Adminpanel freischalten
 
 ## Commands
 
@@ -41,13 +38,22 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **ox_lib Menüs** (nativ
 | `/rechnung` | Neue Rechnung ausstellen |
 | `/rechnungadmin` | Adminpanel (nur Admins) |
 
-## Menü-System
+## Custom-Menü
 
-Das Script nutzt **ox_lib Context-Menüs** statt HTML/NUI:
+Das Menü ist ein schlankes Popover-Panel auf der rechten Seite:
 
-- **Spieler:** Kategorien (Offen/Bezahlt/Überfällig), Detailansicht mit Metadaten, Bezahlung per Bank/Bar
-- **Rechnung erstellen:** Schritt-für-Schritt (Empfänger → Formular)
-- **Admin:** Rechnungen, Jobs, Firmen, Einstellungen – alles als native Menüs und Dialoge
+- **Spieler:** Kategorien → Liste → Detail → Bezahlung
+- **Erstellen:** Empfänger wählen → Formular
+- **Admin:** Tabs mit Statistiken, Formularen und Verwaltung
+
+Alle Dialoge (Bestätigen, Eingabe, Hinweise) laufen im Menü – nichts öffnet sich auf dem PC.
+
+## Konfiguration (`config.lua`)
+
+```lua
+Config.MenuWidth = 420        -- Menübreite in Pixel
+Config.MenuPosition = 'right' -- Position (right)
+```
 
 ## Exports
 
@@ -56,10 +62,6 @@ exports['esx_rechnungen']:OpenInvoiceMenu()
 exports['esx_rechnungen']:OpenAdminPanel()
 exports['esx_rechnungen']:OpenCreateInvoice()
 ```
-
-## Konfiguration
-
-Die `config.lua` enthält nur grundlegende Einstellungen. Alle spielrelevanten Optionen werden im Adminpanel verwaltet und in MySQL gespeichert.
 
 ## Lizenz
 
