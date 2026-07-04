@@ -92,8 +92,8 @@ function applyTheme(ui) {
     if (!ui || !ui.colors) return;
     var c = ui.colors;
     var root = document.documentElement;
-    root.style.setProperty('--accent', c.accent || '#7d52ff');
-    root.style.setProperty('--accent-glow', c.accent_glow || 'rgba(125, 82, 255, 0.45)');
+    root.style.setProperty('--accent', c.accent || '#2fd07a');
+    root.style.setProperty('--accent-glow', c.accent_glow || 'rgba(47, 208, 122, 0.35)');
     root.style.setProperty('--bg-panel', c.background || 'rgba(15, 15, 19, 0.94)');
     root.style.setProperty('--bg-card', c.card || 'rgba(20, 20, 28, 0.85)');
     root.style.setProperty('--text', c.text || '#ffffff');
@@ -908,22 +908,22 @@ function drawLineChart(data) {
     var grid = '';
     for (var g = 0; g <= 4; g++) {
         var gy = pad.t + (h - pad.t - pad.b) * (g / 4);
-        grid += '<line x1="' + pad.l + '" y1="' + gy + '" x2="' + (w - pad.r) + '" y2="' + gy + '" stroke="rgba(125,82,255,0.1)" stroke-width="1"/>';
+        grid += '<line x1="' + pad.l + '" y1="' + gy + '" x2="' + (w - pad.r) + '" y2="' + gy + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>';
     }
 
     var xLabels = '';
     labels.forEach(function(lbl, i) {
         if (labels.length > 8 && i % 2 !== 0 && i !== labels.length - 1) return;
         var x = pad.l + step * i;
-        xLabels += '<text x="' + x + '" y="' + (h - 8) + '" fill="#6b6578" font-size="11" text-anchor="middle">' + esc(lbl) + '</text>';
+        xLabels += '<text x="' + x + '" y="' + (h - 8) + '" fill="#626873" font-size="11" text-anchor="middle">' + esc(lbl) + '</text>';
     });
 
     svg.innerHTML = grid +
         '<defs><linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">' +
-        '<stop offset="0%" stop-color="#7d52ff" stop-opacity="0.35"/>' +
-        '<stop offset="100%" stop-color="#7d52ff" stop-opacity="0"/></linearGradient></defs>' +
+        '<stop offset="0%" stop-color="#2fd07a" stop-opacity="0.35"/>' +
+        '<stop offset="100%" stop-color="#2fd07a" stop-opacity="0"/></linearGradient></defs>' +
         (areaPath ? '<path d="' + areaPath + '" fill="url(#chartGrad)"/>' : '') +
-        (linePath ? '<path d="' + linePath + '" fill="none" stroke="#7d52ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
+        (linePath ? '<path d="' + linePath + '" fill="none" stroke="#2fd07a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
         xLabels;
 }
 
@@ -933,16 +933,16 @@ function drawDonutChart(open, overdue, paid) {
 
     var total = open + overdue + paid;
     if (total === 0) {
-        svg.innerHTML = '<circle cx="60" cy="60" r="42" fill="none" stroke="rgba(125,82,255,0.15)" stroke-width="14"/>' +
-            '<text x="60" y="58" text-anchor="middle" fill="#9b95b0" font-size="11" font-weight="700">Total</text>' +
-            '<text x="60" y="74" text-anchor="middle" fill="#7d52ff" font-size="16" font-weight="800">0</text>';
+        svg.innerHTML = '<circle cx="60" cy="60" r="42" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="14"/>' +
+            '<text x="60" y="58" text-anchor="middle" fill="#9aa0aa" font-size="11" font-weight="700">Total</text>' +
+            '<text x="60" y="74" text-anchor="middle" fill="#2fd07a" font-size="16" font-weight="800">0</text>';
         return;
     }
 
     var segments = [
-        { val: open, color: '#5b9cf5' },
+        { val: open, color: '#4f9bff' },
         { val: overdue, color: '#f5a623' },
-        { val: paid, color: '#3dd68c' }
+        { val: paid, color: '#2fd07a' }
     ];
 
     var r = 42, cx = 60, cy = 60, circ = 2 * Math.PI * r;
@@ -958,8 +958,8 @@ function drawDonutChart(open, overdue, paid) {
     });
 
     svg.innerHTML = arcs +
-        '<text x="60" y="56" text-anchor="middle" fill="#9b95b0" font-size="10" font-weight="700">Total</text>' +
-        '<text x="60" y="74" text-anchor="middle" fill="#7d52ff" font-size="18" font-weight="800">' + total + '</text>';
+        '<text x="60" y="56" text-anchor="middle" fill="#9aa0aa" font-size="10" font-weight="700">Total</text>' +
+        '<text x="60" y="74" text-anchor="middle" fill="#2fd07a" font-size="18" font-weight="800">' + total + '</text>';
 }
 
 function renderRecentPayments(payments) {
