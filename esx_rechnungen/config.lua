@@ -2,9 +2,12 @@ Config = {}
 
 -- Framework-Einstellungen (nur grundlegende Konfiguration)
 Config.Framework = 'esx'           -- Framework: esx
-Config.Database = 'oxmysql'        -- Datenbank: oxmysql oder mysql-async
+Config.Database = 'oxmysql'        -- Datenbank: oxmysql
 Config.Debug = false               -- Debug-Ausgaben in der Konsole
 Config.AutoInstallSQL = true       -- SQL beim Start automatisch ausführen (sql/install.sql)
+
+-- Menü-System: ox_lib Context-Menüs (nativ im Spiel, kein HTML-Overlay)
+Config.MenuSystem = 'ox_lib'
 
 -- Admin-Berechtigungen (Gruppen aus ESX)
 Config.AdminGroups = {
@@ -13,13 +16,9 @@ Config.AdminGroups = {
     'mod'
 }
 
--- Admin-Command für das Adminpanel
+-- Commands
 Config.AdminCommand = 'rechnungadmin'
-
--- Spieler-Command für Rechnungsübersicht
 Config.PlayerCommand = 'rechnungen'
-
--- Command zum Erstellen einer Rechnung
 Config.CreateCommand = 'rechnung'
 
 -- Standardwerte beim ersten Start (werden in DB überschrieben)
@@ -39,6 +38,3 @@ Config.DefaultSettings = {
     default_max_distance = 5.0,
     invoice_prefix = 'RE'
 }
-
--- NUI-Tasten
-Config.CloseKey = 'ESCAPE'

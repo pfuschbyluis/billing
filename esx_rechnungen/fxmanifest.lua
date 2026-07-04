@@ -3,18 +3,22 @@ game 'gta5'
 
 name 'esx_rechnungen'
 author 'ESX Rechnungssystem'
-description 'Deutsches Rechnungssystem für ESX Legacy mit Adminpanel und Steuersystem'
-version '1.0.0'
+description 'Deutsches Rechnungssystem für ESX Legacy mit ox_lib Menüs und Steuersystem'
+version '2.0.0'
 
 lua54 'yes'
 
 shared_scripts {
     '@es_extended/imports.lua',
+    '@ox_lib/init.lua',
     'config.lua'
 }
 
 client_scripts {
-    'client.lua'
+    'client/main.lua',
+    'client/menu_player.lua',
+    'client/menu_create.lua',
+    'client/menu_admin.lua'
 }
 
 server_scripts {
@@ -22,17 +26,8 @@ server_scripts {
     'server.lua'
 }
 
-ui_page 'html/index.html'
-
-files {
-    'html/index.html',
-    'html/css/style.css',
-    'html/js/icons.js',
-    'html/js/dialogs.js',
-    'html/js/app.js'
-}
-
 dependencies {
     'es_extended',
-    'oxmysql'
+    'oxmysql',
+    'ox_lib'
 }

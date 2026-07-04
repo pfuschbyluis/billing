@@ -1,137 +1,65 @@
 # ESX Rechnungssystem
 
-Deutsches Rechnungssystem für **FiveM ESX Legacy** mit Ingame-Adminpanel, Steuersystem, Discord-Logging und MySQL-Persistenz.
+Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **ox_lib Menüs** (nativ im Spiel), Steuersystem, Discord-Logging und MySQL-Persistenz.
 
 ## Features
 
-- Vollständig deutsches UI und Benachrichtigungen
-- Ingame-Adminpanel (`/rechnungadmin`) – fast alle Einstellungen ohne `config.lua`-Bearbeitung
+- **Native ox_lib Menüs** – kein HTML-Overlay, alles direkt im Spiel
+- Context-Menüs, Input-Dialoge und Bestätigungen über ox_lib
+- Ingame-Adminpanel (`/rechnungadmin`)
 - Automatische Rechnungsnummern (z. B. `RE-2026-000001`)
 - Steuersystem mit Netto-, Steuer- und Bruttobeträgen
 - Firmendaten pro Society (Name, Adresse, Steuernummer, USt-IdNr.)
-- Job-spezifische Einstellungen (Berechtigungen, Maximalbeträge, Zahlungsarten, Geldverteilung)
-- Spieler-Rechnungsübersicht (`/rechnungen`) mit Bezahlfunktion
-- Rechnungen ausstellen (`/rechnung`) für berechtigte Jobs
+- Job-spezifische Einstellungen
 - Discord-Webhook-Logging
-- Mahngebühren bei überfälligen Rechnungen
-- Serverseitige Validierung aller kritischen Aktionen
+- Automatische SQL-Installation beim Serverstart
+- Serverseitige Validierung
 
 ## Abhängigkeiten
 
 - [es_extended](https://github.com/esx-framework/esx_core) (ESX Legacy)
 - [oxmysql](https://github.com/overextended/oxmysql)
-- [esx_addonaccount](https://github.com/esx-framework/esx_addonaccount) (für Society-Konten)
+- [ox_lib](https://github.com/overextended/ox_lib)
+- [esx_addonaccount](https://github.com/esx-framework/esx_addonaccount) (Society-Konten)
 
 ## Installation
 
-1. Resource in den `resources`-Ordner kopieren:
+1. Resource in `resources/[esx]/esx_rechnungen/` kopieren
+2. Sicherstellen, dass **ox_lib** installiert und gestartet ist:
    ```
-   resources/[esx]/esx_rechnungen/
-   ```
-
-2. In `server.cfg` eintragen:
-   ```
+   ensure ox_lib
    ensure esx_rechnungen
    ```
-
-3. Server starten – die SQL-Tabellen werden **automatisch** beim ersten Start angelegt.
-   In der Live-Console erscheint dazu Feedback, z. B.:
-   ```
-   [esx_rechnungen] Datenbank-Installation wird gestartet...
-   [esx_rechnungen] [1/6] Tabelle 'rechnungen_settings' ... OK
-   [esx_rechnungen] Datenbank-Installation abgeschlossen (6/6 erfolgreich).
-   ```
-
-   Die automatische Installation kann in der `config.lua` deaktiviert werden:
-   ```lua
-   Config.AutoInstallSQL = false
-   ```
-   Dann muss `sql/install.sql` manuell importiert werden.
-
-4. Im Adminpanel Jobs konfigurieren, die Rechnungen ausstellen dürfen.
+3. Server starten – SQL-Tabellen werden automatisch angelegt
+4. Im Adminpanel Jobs für Rechnungserstellung freischalten
 
 ## Commands
 
-| Command | Beschreibung | Berechtigung |
-|---------|-------------|--------------|
-| `/rechnungen` | Eigene Rechnungen anzeigen & bezahlen | Alle Spieler |
-| `/rechnung` | Neue Rechnung ausstellen | Jobs mit Berechtigung |
-| `/rechnungadmin` | Adminpanel öffnen | Admin-Gruppen (siehe config.lua) |
+| Command | Beschreibung |
+|---------|-------------|
+| `/rechnungen` | Eigene Rechnungen anzeigen & bezahlen |
+| `/rechnung` | Neue Rechnung ausstellen |
+| `/rechnungadmin` | Adminpanel (nur Admins) |
 
-## Adminpanel
+## Menü-System
 
-Das Adminpanel ist über `/rechnungadmin` erreichbar und bietet vier Bereiche:
+Das Script nutzt **ox_lib Context-Menüs** statt HTML/NUI:
 
-### Rechnungen
-Alle Rechnungen einsehen, bearbeiten, stornieren oder löschen.
-
-### Jobs
-Pro Job konfigurierbar:
-- Rechnungen schreiben dürfen
-- An Spieler / Firmen ausstellen
-- Maximaler Rechnungsbetrag
-- Nähe-Pflicht und maximale Entfernung
-- Zahlungsarten (Bank, Bargeld)
-- Geldziel (Society, Mitarbeiter, prozentuale Aufteilung)
-- Job-spezifischer Steuersatz
-
-### Firmen
-Pro Society:
-- Firmenname und Adresse
-- Steuernummer und Umsatzsteuer-ID
-- Rechnungspräfix
-
-### Einstellungen
-- Discord-Logging und Webhook
-- Steuersystem (aktivieren, Standard-Steuersatz)
-- Automatische Rechnungsnummern
-- Zahlungsfrist und Mahngebühren
-- Login-Benachrichtigung bei offenen Rechnungen
-- Admin-Berechtigungen
-
-## Rechnungsinhalt
-
-Jede Rechnung enthält:
-- Rechnungsnummer, Datum, Fälligkeitsdatum
-- Aussteller/Firma mit Adresse
-- Steuernummer / USt-IdNr.
-- Empfänger und Rechnungsgrund
-- Netto-, Steuer- und Bruttobetrag
-- Zahlungsstatus
-
-## Serverseitige Sicherheit
-
-Folgende Prüfungen erfolgen ausschließlich serverseitig:
-- Job-Berechtigung und Rechnungsrechte
-- Betragsvalidierung und Maximalbetrag
-- Empfänger-Existenz und Nähe-Prüfung
-- Geldverfügbarkeit bei Zahlung
-- Society-Existenz
-- Admin-Rechte für das Adminpanel
+- **Spieler:** Kategorien (Offen/Bezahlt/Überfällig), Detailansicht mit Metadaten, Bezahlung per Bank/Bar
+- **Rechnung erstellen:** Schritt-für-Schritt (Empfänger → Formular)
+- **Admin:** Rechnungen, Jobs, Firmen, Einstellungen – alles als native Menüs und Dialoge
 
 ## Exports
 
 ```lua
--- Spieler-Rechnungsmenü öffnen
 exports['esx_rechnungen']:OpenInvoiceMenu()
-
--- Adminpanel öffnen (prüft Berechtigung)
 exports['esx_rechnungen']:OpenAdminPanel()
-
--- Rechnungserstellung öffnen
 exports['esx_rechnungen']:OpenCreateInvoice()
 ```
 
-## Konfiguration (config.lua)
+## Konfiguration
 
-Die `config.lua` enthält nur grundlegende Einstellungen:
-- Framework- und Datenbank-Auswahl
-- Debug-Modus
-- Automatische SQL-Installation (`Config.AutoInstallSQL`)
-- Admin-Gruppen
-- Command-Namen
-
-Alle spielrelevanten Einstellungen werden im Adminpanel verwaltet und in MySQL gespeichert.
+Die `config.lua` enthält nur grundlegende Einstellungen. Alle spielrelevanten Optionen werden im Adminpanel verwaltet und in MySQL gespeichert.
 
 ## Lizenz
 
