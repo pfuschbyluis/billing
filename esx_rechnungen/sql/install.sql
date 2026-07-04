@@ -102,4 +102,4 @@ INSERT IGNORE INTO `rechnungen_settings` (`setting_key`, `setting_value`) VALUES
     ('admin_can_edit', 'true'),
     ('admin_can_delete', 'true'),
     ('admin_can_cancel', 'true'),
-    ('invoice_prefix', 'RE');
+    ('rejection_enabled', 'true'),

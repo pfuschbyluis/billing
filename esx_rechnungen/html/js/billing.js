@@ -68,11 +68,38 @@ function formatDate(d) {
 }
 
 function statusLabel(s) {
-    return { open: 'OFFEN', paid: 'BEZAHLT', overdue: 'ÜBERFÄLLIG', cancelled: 'STORNIERT' }[s] || s;
+    var loc = (state.data && state.data.locale) || {};
+    return {
+        open: loc.status_open || 'OFFEN',
+        paid: loc.status_paid || 'BEZAHLT',
+        overdue: loc.status_overdue || 'ÜBERFÄLLIG',
+        cancelled: loc.status_cancelled || 'STORNIERT',
+        rejected: loc.status_rejected || 'ABGELEHNT'
+    }[s] || s;
 }
 
 function statusClass(s) {
-    return { open: 'status-open', paid: 'status-paid', overdue: 'status-overdue', cancelled: 'status-cancelled' }[s] || '';
+    return { open: 'status-open', paid: 'status-paid', overdue: 'status-overdue', cancelled: 'status-cancelled', rejected: 'status-cancelled' }[s] || '';
+}
+
+function applyTheme(ui) {
+    if (!ui || !ui.colors) return;
+    var c = ui.colors;
+    var root = document.documentElement;
+    root.style.setProperty('--accent', c.accent || '#7d52ff');
+    root.style.setProperty('--accent-glow', c.accent_glow || 'rgba(125, 82, 255, 0.45)');
+    root.style.setProperty('--bg-panel', c.background || 'rgba(15, 15, 19, 0.94)');
+    root.style.setProperty('--bg-card', c.card || 'rgba(20, 20, 28, 0.85)');
+    root.style.setProperty('--text', c.text || '#ffffff');
+    root.style.setProperty('--text-dim', c.text_dim || '#9b95b0');
+    root.style.setProperty('--success', c.success || '#3dd68c');
+    root.style.setProperty('--warning', c.warning || '#f5a623');
+    root.style.setProperty('--danger', c.danger || '#f06565');
+    root.style.setProperty('--info', c.info || '#5b9cf5');
+    if (ui.logo) {
+        var logo = document.querySelector('.billing-logo');
+        if (logo) logo.textContent = ui.logo;
+    }
 }
 
 function esc(s) {
@@ -174,6 +201,7 @@ function renderOverview() {
         '<option value="paid">Bezahlt</option>' +
         '<option value="overdue">Überfällig</option>' +
         '<option value="cancelled">Storniert</option>' +
+        '<option value="rejected">Abgelehnt</option>' +
         '</select>' +
         '<div class="search-wrap">' +
         iconHtml('search', 14) +
@@ -344,7 +372,11 @@ function openDetailModal(inv, canPay) {
     if (canPay && (inv.payment_status === 'open' || inv.payment_status === 'overdue')) {
         footer.innerHTML = '<div class="btn-row">' +
             '<button class="btn btn-success" id="pay-bank" type="button">' + iconHtml('credit-card', 14) + ' Bank</button>' +
-            '<button class="btn btn-success" id="pay-cash" type="button">' + iconHtml('banknote', 14) + ' Bar</button></div>';
+            '<button class="btn btn-success" id="pay-cash" type="button">' + iconHtml('banknote', 14) + ' Bar</button>';
+        if (state.data && state.data.rejection_enabled) {
+            footer.innerHTML += '<button class="btn btn-danger" id="pay-reject" type="button">' + ((state.data.locale && state.data.locale.ui_reject) || 'ABLEHNEN') + '</button>';
+        }
+        footer.innerHTML += '</div>';
         document.getElementById('pay-bank').onclick = function() {
             nuiFetch('payInvoice', { invoiceId: inv.id, paymentMethod: 'bank' });
             showToast('Zahlung wird verarbeitet...', 'info');
@@ -356,6 +388,16 @@ function openDetailModal(inv, canPay) {
             showToast('Zahlung wird verarbeitet...', 'info');
             closeDetailModal();
             setTimeout(function() { refreshDashboard(renderOverview); }, 800);
+        };
+        var rejectBtn = document.getElementById('pay-reject');
+        if (rejectBtn) rejectBtn.onclick = function() {
+            showPrompt('Ablehnungsgrund (Pflicht):', '', { title: 'Rechnung ablehnen' }).then(function(reason) {
+                if (!reason || reason.trim() === '') return;
+                nuiFetch('rejectInvoice', { invoiceId: inv.id, reason: reason.trim() });
+                showToast('Rechnung abgelehnt', 'success');
+                closeDetailModal();
+                setTimeout(function() { refreshDashboard(renderOverview); }, 600);
+            });
         };
     }
 
@@ -521,11 +563,13 @@ function renderRecentPayments(payments) {
     }
 
     el.innerHTML = payments.map(function(p) {
-        var st = p.status === 'cancelled' ? 'cancelled' : 'paid';
-        var lbl = p.status === 'cancelled' ? 'STORNIERT' : 'BEZAHLT';
+        var st = p.status === 'cancelled' ? 'cancelled' : (p.status === 'rejected' ? 'rejected' : 'paid');
+        var lbl = p.status === 'cancelled' ? 'STORNIERT' : (p.status === 'rejected' ? 'ABGELEHNT' : 'BEZAHLT');
         var desc = p.status === 'cancelled'
             ? ('Storniert – ' + esc(p.invoice_number))
-            : (esc(p.payer_name || 'Unbekannt') + ' bezahlte ' + formatMoneyShort(p.amount));
+            : (p.status === 'rejected'
+                ? ('Abgelehnt – ' + esc(p.invoice_number))
+                : (esc(p.payer_name || 'Unbekannt') + ' bezahlte ' + formatMoneyShort(p.amount)));
         return '<div class="recent-item">' +
             '<div class="recent-item-top">' +
             '<span class="status-badge status-' + (st === 'paid' ? 'paid' : 'cancelled') + '">' + lbl + '</span>' +
@@ -609,6 +653,13 @@ function renderCreate() {
     var companyName = society.company_name || job.label || 'Firma';
     var taxRate = parseFloat(s.tax_rate) || 19;
     var templates = data.templates || DEFAULT_TEMPLATES;
+    var durations = (state.data && state.data.durations) || [
+        { label: '3 Tage', days: 3 }, { label: '1 Woche', days: 7 },
+        { label: '2 Wochen', days: 14 }, { label: '1 Monat', days: 30 }
+    ];
+    var durationHtml = durations.map(function(d, i) {
+        return '<option value="' + d.days + '"' + (d.days === 7 ? ' selected' : '') + '>' + esc(d.label) + '</option>';
+    }).join('');
 
     document.getElementById('billing-body').innerHTML =
         '<div class="invoice-stack">' +
@@ -625,12 +676,7 @@ function renderCreate() {
         '<div class="invoice-field-hint" id="issuer-hint">* ' + esc(playerName) + '</div></div>' +
         '<div class="invoice-field"><label>EMPFÄNGER</label><select id="inv-recipient"><option value="">Lädt...</option></select></div>' +
         '<div class="invoice-field"><label>FRIST</label>' +
-        '<select id="inv-duration">' +
-        '<option value="3">3 Tage</option>' +
-        '<option value="7" selected>1 Woche</option>' +
-        '<option value="14">2 Wochen</option>' +
-        '<option value="30">1 Monat</option>' +
-        '</select></div>' +
+        '<select id="inv-duration">' + durationHtml + '</select></div>' +
         '<div class="invoice-field"><label>VORLAGE</label>' +
         '<select id="inv-template"><option value="">Vorlage wählen</option>' +
         templates.map(function(t, i) { return '<option value="' + i + '">' + esc(t.name) + '</option>'; }).join('') +
@@ -900,8 +946,8 @@ function submitInvoiceForm(createData, settings, taxRate) {
         return;
     }
 
-    if (!state.signatureDirty) {
-        showToast('Bitte unterschreibe die Rechnung.', 'warning');
+    if ((state.data && state.data.signature_required !== false) && !state.signatureDirty) {
+        showToast((state.data && state.data.locale && state.data.locale.signature_required) || 'Bitte unterschreibe die Rechnung.', 'warning');
         return;
     }
 
@@ -1332,6 +1378,7 @@ function openDashboard(data) {
 
     document.getElementById('billing-player-name').textContent = state.data.playerName || 'Spieler';
     setIcon(document.getElementById('swap-icon'), 'repeat', 14);
+    applyTheme(state.data.ui || (state.data.config && state.data.config.ui));
     updateTabsVisibility();
 
     var root = document.getElementById('billing-root');
@@ -1347,6 +1394,7 @@ window.addEventListener('message', function(e) {
     if (d.action === 'open') {
         if (d.mode === 'dashboard') {
             openDashboard(d.data || {});
+            if (d.config) applyTheme(d.config.ui);
         }
     } else if (d.action === 'close') {
         document.getElementById('billing-root').classList.remove('open');

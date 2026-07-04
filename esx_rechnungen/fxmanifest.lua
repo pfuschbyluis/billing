@@ -4,13 +4,15 @@ game 'gta5'
 name 'esx_rechnungen'
 author 'ESX Rechnungssystem'
 description 'Deutsches Rechnungssystem für ESX Legacy mit Custom-Menü und Steuersystem'
-version '2.4.1'
+version '2.5.0'
 
 lua54 'yes'
 
 shared_scripts {
     '@es_extended/imports.lua',
-    'config.lua'
+    'config.lua',
+    'locales/de.lua',
+    'shared/locale.lua'
 }
 
 client_scripts {

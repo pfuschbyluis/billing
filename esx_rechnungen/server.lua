@@ -129,7 +129,8 @@ local function RunMigrations()
         "ALTER TABLE rechnungen_invoices ADD COLUMN line_items JSON DEFAULT NULL",
         "ALTER TABLE rechnungen_invoices ADD COLUMN signature MEDIUMTEXT DEFAULT NULL",
         "ALTER TABLE rechnungen_invoices ADD COLUMN duration_days INT DEFAULT NULL",
-        "ALTER TABLE rechnungen_invoices ADD COLUMN issuer_mode VARCHAR(20) DEFAULT 'personal'"
+        "ALTER TABLE rechnungen_invoices ADD COLUMN issuer_mode VARCHAR(20) DEFAULT 'personal'",
+        "ALTER TABLE rechnungen_invoices MODIFY payment_status ENUM('open','paid','cancelled','overdue','rejected') NOT NULL DEFAULT 'open'"
     }
 
     for _, statement in ipairs(migrations) do
@@ -284,11 +285,25 @@ local function CanJobIssueInvoices(jobSettings)
     return v == 1 or v == true or v == '1' or v == 'true'
 end
 
+--- Prüft ob ein Job auf der Blacklist steht
+---@param jobName string
+---@return boolean
+local function IsJobBlacklisted(jobName)
+    for _, name in ipairs(Config.Blacklist or {}) do
+        if name == jobName then return true end
+    end
+    return false
+end
+
 --- Prüft ob ein Job per Config Rechnungen ausstellen darf (Fallback ohne DB-Eintrag)
 ---@param jobName string
 ---@return boolean
 local function IsJobAllowedByConfig(jobName)
     if not jobName or jobName == '' or jobName == 'unemployed' then
+        return false
+    end
+
+    if IsJobBlacklisted(jobName) then
         return false
     end
 
@@ -307,6 +322,39 @@ local function IsJobAllowedByConfig(jobName)
         end
     end
     return false
+end
+
+--- Prüft Rang-Berechtigung zum Ausstellen
+---@param xPlayer table
+---@return boolean
+---@return string|nil
+local function HasGradePermission(xPlayer)
+    local job = xPlayer.getJob()
+    if IsJobBlacklisted(job.name) then
+        return false, _U('job_blacklisted', job.label or job.name)
+    end
+
+    if Config.Permissions.boss_auto_manage and job.grade_name == 'boss' then
+        return true
+    end
+
+    local minGrade = Config.Permissions.default_min_grade or 0
+    local overrides = Config.Permissions.job_overrides and Config.Permissions.job_overrides[job.name]
+    if overrides and overrides.min_grade_issue then
+        minGrade = overrides.min_grade_issue
+    end
+
+    local jobSettings = JobSettings[job.name]
+    if jobSettings and jobSettings.min_grade then
+        minGrade = tonumber(jobSettings.min_grade) or minGrade
+    end
+
+    local grade = tonumber(job.grade) or 0
+    if grade < minGrade then
+        return false, _U('grade_too_low', grade, minGrade)
+    end
+
+    return true
 end
 
 --- Baut Standard-Job-Einstellungen aus der Config
@@ -478,6 +526,27 @@ local function UpdateOverdueInvoices()
     )
 end
 
+--- Erinnerungen vor Fälligkeit senden
+local function SendDueReminders()
+    local daysList = Config.Overdue and Config.Overdue.reminder_days_before
+    if not daysList then return end
+
+    for _, days in ipairs(daysList) do
+        local targetDate = os.date('%Y-%m-%d', os.time() + (days * 86400))
+        local invoices = MySQL.query.await(
+            "SELECT * FROM rechnungen_invoices WHERE payment_status = 'open' AND due_date = ?",
+            { targetDate }
+        )
+
+        for _, inv in ipairs(invoices or {}) do
+            local targetSource = GetOnlinePlayerByIdentifier(inv.recipient_identifier)
+            if targetSource then
+                Notify(targetSource, _U('reminder_before_due', inv.invoice_number, days, inv.gross_amount), 'warning')
+            end
+        end
+    end
+end
+
 -- ============================================================
 -- Serverstart: Datenbank + Einstellungen laden
 -- ============================================================
@@ -495,16 +564,19 @@ MySQL.ready(function()
         LoadJobSettings()
         LoadSocietyInfo()
         UpdateOverdueInvoices()
+        SendDueReminders()
 
         ConsoleLog('success', 'Rechnungssystem erfolgreich geladen und einsatzbereit.')
     end)
 end)
 
--- Periodisch überfällige Rechnungen prüfen (alle 30 Minuten)
+-- Periodisch überfällige Rechnungen prüfen
 CreateThread(function()
+    local interval = (Config.Overdue and Config.Overdue.check_interval_minutes or 30) * 60000
     while true do
-        Wait(1800000)
+        Wait(interval)
         UpdateOverdueInvoices()
+        SendDueReminders()
     end
 end)
 
@@ -731,13 +803,19 @@ ESX.RegisterServerCallback('esx_rechnungen:canCreateInvoice', function(source, c
     local jobSettings = GetJobSettings(job.name)
 
     if not CanJobIssueInvoices(jobSettings) then
-        local hint = ('Dein Job "%s" (%s) ist nicht freigeschaltet.'):format(job.label or job.name, job.name)
+        local hint = _U('cannot_issue', job.label or job.name)
         if Config.InvoiceJobs == false then
-            hint = hint .. ' Ein Admin muss ihn im Rechnungs-Adminpanel unter Jobs aktivieren.'
+            hint = hint .. _U('cannot_issue_admin')
         else
-            hint = hint .. ' Bitte einen Admin kontaktieren oder Config.InvoiceJobs prüfen.'
+            hint = hint .. _U('cannot_issue_config')
         end
         cb(false, hint)
+        return
+    end
+
+    local hasGrade, gradeMsg = HasGradePermission(xPlayer)
+    if not hasGrade then
+        cb(false, gradeMsg)
         return
     end
 
@@ -821,7 +899,13 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     local jobSettings = GetJobSettings(job.name)
 
     if not CanJobIssueInvoices(jobSettings) then
-        Notify(source, ('Dein Job "%s" darf keine Rechnungen ausstellen.'):format(job.label or job.name), 'error')
+        Notify(source, _U('cannot_issue', job.label or job.name), 'error')
+        return
+    end
+
+    local hasGrade, gradeMsg = HasGradePermission(xPlayer)
+    if not hasGrade then
+        Notify(source, gradeMsg, 'error')
         return
     end
 
@@ -842,6 +926,12 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     local reason = tostring(data.reason or ''):sub(1, 500)
 
     if type(lineItems) == 'table' and #lineItems > 0 then
+        local maxItems = (Config.Limits and Config.Limits.max_items_per_invoice) or 20
+        if #lineItems > maxItems then
+            Notify(source, _U('max_items', maxItems), 'error')
+            return
+        end
+
         netAmount = 0
         local reasons = {}
 
@@ -872,9 +962,9 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
     end
 
     -- Validierung: Maximalbetrag
-    local maxAmount = tonumber(jobSettings.max_amount) or 10000
+    local maxAmount = tonumber(jobSettings.max_amount) or (Config.Limits and Config.Limits.max_amount) or 10000
     if netAmount > maxAmount then
-        Notify(source, ('Der Betrag überschreitet das Maximum von %d€.'):format(maxAmount), 'error')
+        Notify(source, _U('max_amount', maxAmount), 'error')
         return
     end
 
@@ -884,8 +974,18 @@ RegisterNetEvent('esx_rechnungen:createInvoice', function(data)
         return
     end
 
-    local notes = tostring(data.notes or ''):sub(1, 2000)
+    local maxNote = (Config.Limits and Config.Limits.max_note_length) or 2000
+    local notes = tostring(data.notes or ''):sub(1, maxNote)
+    if #tostring(data.notes or '') > maxNote then
+        Notify(source, _U('note_too_long', maxNote), 'error')
+        return
+    end
+
     local signature = data.signature
+    if Config.Signature and Config.Signature.required and (not signature or signature == '') then
+        Notify(source, _U('signature_required'), 'error')
+        return
+    end
     if type(signature) == 'string' and #signature > 500000 then
         signature = signature:sub(1, 500000)
     end
@@ -1164,7 +1264,7 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
 
     local recentPayments = {}
     for _, inv in ipairs(all) do
-        if inv.payment_status == 'paid' or inv.payment_status == 'cancelled' then
+        if inv.payment_status == 'paid' or inv.payment_status == 'cancelled' or inv.payment_status == 'rejected' then
             recentPayments[#recentPayments + 1] = inv
         end
     end
@@ -1183,7 +1283,7 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
             amount = inv.gross_amount,
             paid_at = inv.paid_at or inv.updated_at,
             created_at = inv.created_at,
-            status = inv.payment_status == 'cancelled' and 'cancelled' or 'paid'
+            status = inv.payment_status == 'cancelled' and 'cancelled' or (inv.payment_status == 'rejected' and 'rejected' or 'paid')
         }
     end
     stats.recent_payments = recent
@@ -1204,7 +1304,8 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
     local canCreate = false
     local createData = nil
     local jobSettings = GetJobSettings(job.name)
-    if CanJobIssueInvoices(jobSettings) then
+    local hasGrade = HasGradePermission(xPlayer)
+    if CanJobIssueInvoices(jobSettings) and hasGrade then
         canCreate = true
         createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name], templates = GetDefaultTemplates() }
     end
@@ -1216,7 +1317,13 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
         createData = createData,
         received = received,
         created = created,
-        stats = stats
+        stats = stats,
+        ui = Config.UI,
+        durations = Config.Durations,
+        limits = Config.Limits,
+        locale = Locales[Config.Locale] or Locales['de'],
+        signature_required = Config.Signature and Config.Signature.required or true,
+        rejection_enabled = GetGlobalSetting('rejection_enabled', true)
     })
 end)
 
@@ -1454,6 +1561,64 @@ RegisterNetEvent('esx_rechnungen:editInvoice', function(invoiceId, data)
     Notify(source, 'Rechnung erfolgreich bearbeitet.', 'success')
 
     SendDiscordLog('✏️ Rechnung bearbeitet', ('Admin **%s** hat Rechnung ID %d bearbeitet.'):format(GetPlayerName(source), invoiceId), 16776960)
+end)
+
+-- ============================================================
+-- Rechnung ablehnen (Empfänger)
+-- ============================================================
+
+RegisterNetEvent('esx_rechnungen:rejectInvoice', function(invoiceId, reason)
+    local source = source
+    if not GetGlobalSetting('rejection_enabled', true) then
+        Notify(source, _U('no_permission'), 'error')
+        return
+    end
+
+    invoiceId = tonumber(invoiceId)
+    if not invoiceId then return end
+
+    reason = tostring(reason or ''):sub(1, 500)
+    if reason == '' then
+        Notify(source, 'Bitte gib einen Ablehnungsgrund an.', 'error')
+        return
+    end
+
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then return end
+
+    local invoice = MySQL.single.await('SELECT * FROM rechnungen_invoices WHERE id = ?', { invoiceId })
+    if not invoice then
+        Notify(source, 'Rechnung nicht gefunden.', 'error')
+        return
+    end
+
+    local job = xPlayer.getJob()
+    local isRecipient = invoice.recipient_identifier == xPlayer.identifier
+        or invoice.recipient_identifier == ('society:' .. job.name)
+
+    if not isRecipient then
+        Notify(source, _U('no_permission'), 'error')
+        return
+    end
+
+    if invoice.payment_status ~= 'open' and invoice.payment_status ~= 'overdue' then
+        Notify(source, 'Diese Rechnung kann nicht mehr abgelehnt werden.', 'error')
+        return
+    end
+
+    MySQL.update.await(
+        "UPDATE rechnungen_invoices SET payment_status = 'rejected', cancelled_by = ?, cancelled_reason = ? WHERE id = ?",
+        { xPlayer.identifier, reason, invoiceId }
+    )
+
+    Notify(source, _U('invoice_rejected', invoice.invoice_number), 'success')
+
+    local issuerSource = GetOnlinePlayerByIdentifier(invoice.issuer_identifier)
+    if issuerSource then
+        Notify(issuerSource, _U('invoice_rejected_notify', invoice.invoice_number, xPlayer.getName(), reason), 'warning')
+    end
+
+    SendDiscordLog('🚫 Rechnung abgelehnt', ('**%s** hat Rechnung %s abgelehnt. Grund: %s'):format(xPlayer.getName(), invoice.invoice_number, reason), 15158332)
 end)
 
 -- ============================================================

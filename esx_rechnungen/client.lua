@@ -5,6 +5,51 @@
 
 local ESX = exports['es_extended']:getSharedObject()
 local isMenuOpen = false
+local locationBlips = {}
+
+local function ShowNotify(msg, ntype)
+    ntype = ntype or 'info'
+    local preset = Config.Notify and Config.Notify.preset or 'esx'
+
+    if preset == 'ox_lib' and GetResourceState('ox_lib') == 'started' then
+        exports.ox_lib:notify({ description = msg, type = ntype })
+    elseif preset == 'custom' and Config.Notify.custom_export then
+        local exportRef = Config.Notify.custom_export
+        local colon = exportRef:find(':')
+        if colon then
+            local res = exportRef:sub(1, colon - 1)
+            local fn = exportRef:sub(colon + 1)
+            if exports[res] and exports[res][fn] then
+                exports[res][fn](msg, ntype)
+            end
+        end
+    elseif ESX.ShowNotification then
+        ESX.ShowNotification(msg, ntype)
+    end
+
+    SendNUIMessage({ action = 'toast', message = msg, type = ntype })
+end
+
+local function CanUseLocation(loc)
+    if loc.jobs then
+        local job = ESX.GetPlayerData().job
+        if not job then return false end
+        local allowed = false
+        for _, j in ipairs(loc.jobs) do
+            if j == job.name then allowed = true break end
+        end
+        if not allowed then return false end
+    end
+
+    if loc.hours then
+        local hour = GetClockHours()
+        if hour < loc.hours.open or hour >= loc.hours.close then
+            return false
+        end
+    end
+
+    return true
+end
 
 -- ============================================================
 -- Menü öffnen / schließen
@@ -23,8 +68,12 @@ local function OpenMenu(mode, data)
         mode = mode,
         data = data or {},
         config = {
-            width = Config.MenuWidth,
-            position = Config.MenuPosition
+            width = Config.UI and Config.UI.width or Config.MenuWidth,
+            position = Config.UI and Config.UI.position or Config.MenuPosition,
+            ui = Config.UI,
+            durations = Config.Durations,
+            limits = Config.Limits,
+            locale = Locales[Config.Locale] or Locales['de']
         }
     })
 end
@@ -73,14 +122,7 @@ end
 -- ============================================================
 
 RegisterNetEvent('esx_rechnungen:notify', function(msg, ntype)
-    if ESX.ShowNotification then
-        ESX.ShowNotification(msg, ntype or 'info')
-    end
-    SendNUIMessage({
-        action = 'toast',
-        message = msg,
-        type = ntype or 'info'
-    })
+    ShowNotify(msg, ntype)
 end)
 
 -- ============================================================
@@ -197,6 +239,11 @@ RegisterNUICallback('cancelInvoice', function(data, cb)
     cb('ok')
 end)
 
+RegisterNUICallback('rejectInvoice', function(data, cb)
+    TriggerServerEvent('esx_rechnungen:rejectInvoice', data.invoiceId, data.reason)
+    cb('ok')
+end)
+
 RegisterNUICallback('deleteInvoice', function(data, cb)
     TriggerServerEvent('esx_rechnungen:deleteInvoice', data.invoiceId)
     cb('ok')
@@ -279,6 +326,61 @@ RegisterCommand(Config.AdminCommand, function()
         OpenDashboardTab('admin')
     end)
 end, false)
+
+-- ============================================================
+-- Rechnungsstationen (Blips & Marker)
+-- ============================================================
+
+CreateThread(function()
+    for i, loc in ipairs(Config.Locations or {}) do
+        if loc.blip and loc.blip.enabled and loc.coords then
+            local blip = AddBlipForCoord(loc.coords.x, loc.coords.y, loc.coords.z)
+            SetBlipSprite(blip, loc.blip.sprite or 500)
+            SetBlipColour(blip, loc.blip.color or 83)
+            SetBlipScale(blip, loc.blip.scale or 0.75)
+            SetBlipAsShortRange(blip, true)
+            BeginTextCommandSetBlipName('STRING')
+            AddTextComponentString(loc.blip.label or 'Rechnungen')
+            EndTextCommandSetBlipName(blip)
+            locationBlips[#locationBlips + 1] = blip
+        end
+    end
+end)
+
+CreateThread(function()
+    while true do
+        local sleep = 1000
+        local ped = PlayerPedId()
+        local coords = GetEntityCoords(ped)
+
+        for _, loc in ipairs(Config.Locations or {}) do
+            if loc.coords then
+                local dist = #(coords - loc.coords)
+                if dist < 30.0 then
+                    sleep = 0
+                    if loc.marker and loc.marker.enabled ~= false then
+                        local m = loc.marker
+                        local c = m.color or { r = 125, g = 82, b = 255, a = 140 }
+                        local s = m.scale or vector3(1.0, 1.0, 1.0)
+                        DrawMarker(m.type or 27, loc.coords.x, loc.coords.y, loc.coords.z - 0.98,
+                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+                            s.x, s.y, s.z, c.r, c.g, c.b, c.a,
+                            false, false, 2, false, nil, nil, false)
+                    end
+
+                    if dist <= (loc.radius or 2.5) and CanUseLocation(loc) then
+                        ESX.ShowHelpNotification('Drücke ~INPUT_CONTEXT~ für Rechnungen')
+                        if IsControlJustReleased(0, 38) then
+                            OpenDashboard()
+                        end
+                    end
+                end
+            end
+        end
+
+        Wait(sleep)
+    end
+end)
 
 -- ============================================================
 -- Exports
