@@ -879,6 +879,129 @@ ESX.RegisterServerCallback('esx_rechnungen:getMyInvoices', function(source, cb)
 end)
 
 -- ============================================================
+-- Vom Spieler erstellte Rechnungen
+-- ============================================================
+
+ESX.RegisterServerCallback('esx_rechnungen:getCreatedInvoices', function(source, cb)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then cb({}) return end
+
+    local invoices = MySQL.query.await(
+        'SELECT * FROM rechnungen_invoices WHERE issuer_identifier = ? ORDER BY created_at DESC LIMIT 100',
+        { xPlayer.identifier }
+    )
+
+    if invoices then
+        for _, inv in ipairs(invoices) do
+            local socInfo = SocietyInfo[inv.issuer_society]
+            if socInfo then
+                inv.company_name = socInfo.company_name
+                inv.company_address = socInfo.company_address
+                inv.tax_id = socInfo.tax_id
+                inv.vat_id = socInfo.vat_id
+            end
+        end
+    end
+
+    cb(invoices or {})
+end)
+
+-- ============================================================
+-- Dashboard-Daten (Übersicht, Stats, Berechtigungen)
+-- ============================================================
+
+ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, cb)
+    local xPlayer = ESX.GetPlayerFromId(source)
+    if not xPlayer then cb(nil) return end
+
+    local job = xPlayer.getJob()
+    local identifier = xPlayer.identifier
+
+    local received = MySQL.query.await(
+        [[SELECT * FROM rechnungen_invoices
+          WHERE recipient_identifier = ? OR recipient_identifier = ?
+          ORDER BY created_at DESC LIMIT 100]],
+        { identifier, 'society:' .. job.name }
+    ) or {}
+
+    local created = MySQL.query.await(
+        'SELECT * FROM rechnungen_invoices WHERE issuer_identifier = ? ORDER BY created_at DESC LIMIT 100',
+        { identifier }
+    ) or {}
+
+    local all = {}
+    local seen = {}
+    for _, inv in ipairs(received) do
+        if not seen[inv.id] then all[#all + 1] = inv seen[inv.id] = true end
+    end
+    for _, inv in ipairs(created) do
+        if not seen[inv.id] then all[#all + 1] = inv seen[inv.id] = true end
+    end
+
+    local stats = {
+        total = #all,
+        open = 0,
+        open_amount = 0,
+        today_count = 0,
+        today_amount = 0,
+        paid = 0,
+        overdue = 0
+    }
+
+    local today = os.date('%Y-%m-%d')
+    for _, inv in ipairs(all) do
+        local gross = tonumber(inv.gross_amount) or 0
+        local createdDay = string.sub(tostring(inv.created_at or ''), 1, 10)
+        if createdDay == today then
+            stats.today_count = stats.today_count + 1
+            stats.today_amount = stats.today_amount + gross
+        end
+        if inv.payment_status == 'open' or inv.payment_status == 'overdue' then
+            stats.open = stats.open + 1
+            stats.open_amount = stats.open_amount + gross
+            if inv.payment_status == 'overdue' then
+                stats.open_amount = stats.open_amount + (tonumber(inv.reminder_fee) or 0)
+            end
+        elseif inv.payment_status == 'paid' then
+            stats.paid = stats.paid + 1
+        elseif inv.payment_status == 'overdue' then
+            stats.overdue = stats.overdue + 1
+        end
+    end
+
+    for _, list in ipairs({ received, created }) do
+        for _, inv in ipairs(list) do
+            local socInfo = SocietyInfo[inv.issuer_society]
+            if socInfo then
+                inv.company_name = socInfo.company_name
+                inv.company_address = socInfo.company_address
+                inv.tax_id = socInfo.tax_id
+                inv.vat_id = socInfo.vat_id
+            end
+        end
+    end
+
+    local isAdmin = IsPlayerAdmin(source)
+    local canCreate = false
+    local createData = nil
+    local jobSettings = GetJobSettings(job.name)
+    if jobSettings and jobSettings.can_issue == 1 then
+        canCreate = true
+        createData = { job = job, settings = jobSettings, societyInfo = SocietyInfo[job.name] }
+    end
+
+    cb({
+        playerName = xPlayer.getName(),
+        isAdmin = isAdmin,
+        canCreate = canCreate,
+        createData = createData,
+        received = received,
+        created = created,
+        stats = stats
+    })
+end)
+
+-- ============================================================
 -- Alle Rechnungen abrufen (Admin)
 -- ============================================================
 

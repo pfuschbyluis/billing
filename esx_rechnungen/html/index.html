@@ -4,28 +4,48 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Rechnungssystem</title>
-    <link rel="stylesheet" href="css/menu.css">
+    <link rel="stylesheet" href="css/billing.css">
 </head>
 <body>
-    <div id="menu-root" class="hidden">
-        <div class="menu-panel" id="menu-panel">
-            <header class="menu-header">
-                <button class="menu-back hidden" id="btn-back" type="button"></button>
-                <div class="menu-header-text">
-                    <h1 id="menu-title">Rechnungen</h1>
-                    <p id="menu-subtitle"></p>
+    <div id="billing-root" class="hidden">
+        <div class="billing-panel" id="billing-panel">
+            <header class="billing-header">
+                <div class="billing-brand">
+                    <div class="billing-logo">R</div>
+                    <div class="billing-brand-text">
+                        <h1>RECHNUNGEN</h1>
+                        <div class="billing-player">
+                            <span id="billing-player-name">Spieler</span>
+                        </div>
+                    </div>
                 </div>
-                <button class="menu-close" id="btn-close" type="button"></button>
+                <button class="billing-esc" id="btn-close" type="button">
+                    <span class="esc-key">ESC</span>
+                </button>
             </header>
 
-            <nav class="menu-tabs hidden" id="admin-tabs">
-                <button class="tab active" data-tab="invoices">Rechnungen</button>
-                <button class="tab" data-tab="jobs">Jobs</button>
-                <button class="tab" data-tab="societies">Firmen</button>
-                <button class="tab" data-tab="settings">System</button>
+            <nav class="billing-tabs" id="billing-tabs">
+                <button class="billing-tab active" data-tab="overview" type="button">ÜBERSICHT</button>
+                <button class="billing-tab" data-tab="statistics" type="button">STATISTIK</button>
+                <button class="billing-tab" data-tab="create" type="button">RECHNUNG ERSTELLEN</button>
+                <button class="billing-tab hidden" data-tab="admin" type="button" id="tab-admin">ADMIN</button>
             </nav>
 
-            <div class="menu-body" id="menu-body"></div>
+            <div class="billing-body" id="billing-body"></div>
+        </div>
+    </div>
+
+    <div id="detail-modal" class="detail-modal hidden">
+        <div class="detail-modal-box">
+            <header class="detail-modal-header">
+                <div>
+                    <h2 id="detail-title">Rechnung</h2>
+                    <span id="detail-badge" class="status-badge"></span>
+                </div>
+                <button class="detail-close" id="detail-close" type="button"></button>
+            </header>
+            <div class="detail-modal-body" id="detail-body"></div>
+            <footer class="detail-modal-footer" id="detail-footer"></footer>
         </div>
     </div>
 
@@ -44,7 +64,7 @@
     <script>
         (function loadScripts(i) {
             var res = (typeof GetParentResourceName === 'function') ? GetParentResourceName() : 'esx_rechnungen';
-            var files = ['js/icons.js', 'js/dialogs.js', 'js/menu.js'];
+            var files = ['js/icons.js', 'js/dialogs.js', 'js/billing.js'];
             if (i >= files.length) return;
             var s = document.createElement('script');
             s.src = 'nui://' + res + '/html/' + files[i];

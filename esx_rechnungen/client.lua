@@ -1,6 +1,6 @@
 --[[
     ESX Rechnungssystem - Client
-    Custom-NUI Menü (eigenes Popover-Menü, kein ox_lib)
+    Custom-NUI Billing-Dashboard (kein ox_lib)
 ]]
 
 local ESX = exports['es_extended']:getSharedObject()
@@ -38,21 +38,33 @@ local function CloseMenu()
     SendNUIMessage({ action = 'close' })
 end
 
---- Öffnet das F7-Hauptmenü (toggle)
-local function OpenHubMenu()
+--- Öffnet das F7-Dashboard (toggle)
+local function OpenDashboard()
     if isMenuOpen then
         CloseMenu()
         return
     end
 
-    ESX.TriggerServerCallback('esx_rechnungen:isAdmin', function(isAdmin)
-        ESX.TriggerServerCallback('esx_rechnungen:canCreateInvoice', function(canCreate, createResult)
-            OpenMenu('hub', {
-                isAdmin = isAdmin,
-                canCreate = canCreate,
-                createData = canCreate and createResult or nil
-            })
-        end)
+    ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
+        if not data then return end
+        data.tab = 'overview'
+        OpenMenu('dashboard', data)
+    end)
+end
+
+---@param tab string|nil
+---@param subTab string|nil
+local function OpenDashboardTab(tab, subTab)
+    if isMenuOpen then
+        CloseMenu()
+        return
+    end
+
+    ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
+        if not data then return end
+        data.tab = tab or 'overview'
+        data.subTab = subTab
+        OpenMenu('dashboard', data)
     end)
 end
 
@@ -78,6 +90,12 @@ end)
 RegisterNUICallback('close', function(_, cb)
     CloseMenu()
     cb('ok')
+end)
+
+RegisterNUICallback('getDashboardData', function(_, cb)
+    ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
+        cb(data or {})
+    end)
 end)
 
 RegisterNUICallback('getMyInvoices', function(_, cb)
@@ -224,39 +242,41 @@ end)
 -- Commands
 -- ============================================================
 
---- F7-Hauptmenü (auch per Command)
+--- F7-Dashboard (auch per Command)
 RegisterCommand(Config.HubCommand, function()
-    OpenHubMenu()
+    OpenDashboard()
 end, false)
 
 RegisterKeyMapping(Config.HubCommand, Config.KeybindDescription, 'keyboard', Config.Keybind)
 
 RegisterCommand(Config.PlayerCommand, function()
-    if isMenuOpen then CloseMenu() return end
-    OpenMenu('player')
+    OpenDashboardTab('overview', 'received')
 end, false)
 
 RegisterCommand(Config.CreateCommand, function()
-    if isMenuOpen then CloseMenu() return end
-
     ESX.TriggerServerCallback('esx_rechnungen:canCreateInvoice', function(canCreate, result)
         if not canCreate then
             ESX.ShowNotification(result or 'Du darfst keine Rechnungen ausstellen.', 'error')
             return
         end
-        OpenMenu('create', result)
+        if isMenuOpen then CloseMenu() return end
+        ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
+            if not data then return end
+            data.tab = 'create'
+            data.createData = result
+            data.canCreate = true
+            OpenMenu('dashboard', data)
+        end)
     end)
 end, false)
 
 RegisterCommand(Config.AdminCommand, function()
-    if isMenuOpen then CloseMenu() return end
-
     ESX.TriggerServerCallback('esx_rechnungen:isAdmin', function(isAdmin)
         if not isAdmin then
             ESX.ShowNotification('Keine Berechtigung für das Adminpanel.', 'error')
             return
         end
-        OpenMenu('admin')
+        OpenDashboardTab('admin')
     end)
 end, false)
 
@@ -264,17 +284,26 @@ end, false)
 -- Exports
 -- ============================================================
 
-exports('OpenInvoiceMenu', function() OpenMenu('player') end)
-exports('OpenHubMenu', OpenHubMenu)
+exports('OpenInvoiceMenu', function() OpenDashboardTab('overview', 'received') end)
+exports('OpenDashboard', OpenDashboard)
+exports('OpenHubMenu', OpenDashboard)
 
 exports('OpenAdminPanel', function()
     ESX.TriggerServerCallback('esx_rechnungen:isAdmin', function(isAdmin)
-        if isAdmin then OpenMenu('admin') end
+        if isAdmin then OpenDashboardTab('admin') end
     end)
 end)
 
 exports('OpenCreateInvoice', function()
     ESX.TriggerServerCallback('esx_rechnungen:canCreateInvoice', function(canCreate, result)
-        if canCreate then OpenMenu('create', result) end
+        if not canCreate then return end
+        if isMenuOpen then CloseMenu() return end
+        ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
+            if not data then return end
+            data.tab = 'create'
+            data.createData = result
+            data.canCreate = true
+            OpenMenu('dashboard', data)
+        end)
     end)
 end)

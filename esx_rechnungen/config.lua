@@ -7,8 +7,8 @@ Config.Debug = false
 Config.AutoInstallSQL = true
 
 -- Custom-Menü Einstellungen
-Config.MenuPosition = 'right'      -- Position: right (Popover rechts im Bild)
-Config.MenuWidth = 420             -- Breite des Menüs in Pixel
+Config.MenuWidth = 1100           -- Dashboard-Breite in Pixel (max)
+Config.MenuPosition = 'center'    -- Zentriertes Dashboard
 
 -- Admin-Berechtigungen (Gruppen aus ESX)
 Config.AdminGroups = {

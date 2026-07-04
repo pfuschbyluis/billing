@@ -4,7 +4,7 @@ game 'gta5'
 name 'esx_rechnungen'
 author 'ESX Rechnungssystem'
 description 'Deutsches Rechnungssystem für ESX Legacy mit Custom-Menü und Steuersystem'
-version '2.1.0'
+version '2.2.0'
 
 lua54 'yes'
 
@@ -26,10 +26,10 @@ ui_page 'html/index.html'
 
 files {
     'html/index.html',
-    'html/css/menu.css',
+    'html/css/billing.css',
     'html/js/icons.js',
     'html/js/dialogs.js',
-    'html/js/menu.js'
+    'html/js/billing.js'
 }
 
 dependencies {

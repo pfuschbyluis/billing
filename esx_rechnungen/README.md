@@ -1,14 +1,16 @@
 # ESX Rechnungssystem
 
-Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Custom-Menü**, Steuersystem und MySQL-Persistenz.
+Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Billing-Dashboard**, Steuersystem und MySQL-Persistenz.
 
 ## Features
 
-- **Eigenes Custom-Menü** – kein ox_lib, kein Browser-Fenster
-- Kompaktes **Popover-Menü** rechts im Bildschirm (slide-in)
-- Listen-Navigation mit Zurück-Button (wie ein natives Spielmenü)
+- **Eigenes Billing-Dashboard** – kein ox_lib, kein Browser-Fenster
+- Großes, zentriertes Panel im Spiel (RiP-Style, dunkles Lila-Design)
+- Tabs: Übersicht, Statistik, Rechnung erstellen, Admin
+- Statistik-Karten, ERSTELLT/EMPFANGEN-Untertabs, Suche & Filter
+- Rechnungszeilen mit Status-Badge, ANSEHEN und Admin-Löschen
 - SVG-Icons, Ingame-Dialoge und Toasts
-- Adminpanel mit Tabs: Rechnungen, Jobs, Firmen, System
+- Adminpanel: Rechnungen, Jobs, Firmen, System
 - Automatische SQL-Installation beim Serverstart
 - Serverseitige Validierung
 
@@ -34,49 +36,40 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Custom-Menü**
 
 | Command | Beschreibung |
 |---------|-------------|
-| **F7** / `/rechnungsmenu` | **Hauptmenü** mit allen Optionen |
-| `/rechnungen` | Rechnungen direkt anzeigen |
-| `/rechnung` | Rechnung direkt ausstellen |
-| `/rechnungadmin` | Adminpanel direkt öffnen |
+| **F7** / `/rechnungsmenu` | **Billing-Dashboard** öffnen/schließen |
+| `/rechnungen` | Dashboard → Übersicht (Empfangen) |
+| `/rechnung` | Dashboard → Rechnung erstellen |
+| `/rechnungadmin` | Dashboard → Admin |
 
-### F7-Hauptmenü
+### F7-Dashboard
 
-Mit **F7** öffnet sich das zentrale Menü:
+Mit **F7** öffnet sich das zentrale Billing-Panel:
 
-- Rechnungen einsehen
-- Rechnung ausstellen (wenn berechtigt)
-- Adminpanel (nur für Admins)
-- Schnellzugriff: Offene Rechnungen
+- **Übersicht** – Statistik-Karten, Rechnungsliste (Erstellt/Empfangen), Suche & Filter
+- **Statistik** – Status-Verteilung und Tageswerte
+- **Rechnung erstellen** – 3-Schritt-Assistent (Empfänger → Auswahl → Formular)
+- **Admin** – Rechnungen, Jobs, Firmen, Systemeinstellungen (nur Admins)
 
-F7 erneut drücken schließt das Menü.
-
-## Custom-Menü
-
-Das Menü ist ein schlankes Popover-Panel auf der rechten Seite:
-
-- **Spieler:** Kategorien → Liste → Detail → Bezahlung
-- **Erstellen:** Empfänger wählen → Formular
-- **Admin:** Tabs mit Statistiken, Formularen und Verwaltung
-
-Alle Dialoge (Bestätigen, Eingabe, Hinweise) laufen im Menü – nichts öffnet sich auf dem PC.
+F7 erneut drücken schließt das Dashboard.
 
 ## Konfiguration (`config.lua`)
 
 ```lua
-Config.MenuWidth = 420        -- Menübreite in Pixel
-Config.MenuPosition = 'right' -- Position (right)
-Config.Keybind = 'F7'         -- Taste für Hauptmenü
+Config.MenuWidth = 1100        -- Dashboard-Breite in Pixel (max)
+Config.MenuPosition = 'center' -- Zentriertes Panel
+Config.Keybind = 'F7'          -- Taste für Dashboard
 ```
 
 ## Exports
 
 ```lua
-exports['esx_rechnungen']:OpenHubMenu()       -- F7-Hauptmenü
-exports['esx_rechnungen']:OpenInvoiceMenu()
+exports['esx_rechnungen']:OpenDashboard()     -- F7-Dashboard
+exports['esx_rechnungen']:OpenHubMenu()       -- Alias für OpenDashboard
+exports['esx_rechnungen']:OpenInvoiceMenu()   -- Übersicht (Empfangen)
 exports['esx_rechnungen']:OpenAdminPanel()
 exports['esx_rechnungen']:OpenCreateInvoice()
 ```
 
 ## Lizenz
 
-Frei verwendbar für Roleplay-Server.
+MIT
