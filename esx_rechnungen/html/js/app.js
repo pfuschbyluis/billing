@@ -19,6 +19,32 @@ let allSocieties = [];
 let selectedInvoice = null;
 
 // ============================================================
+// Icon-Rendering
+// ============================================================
+
+/**
+ * Rendert alle data-icon Elemente im DOM
+ */
+function injectIcons() {
+    document.querySelectorAll('[data-icon]').forEach(el => {
+        const name = el.getAttribute('data-icon');
+        const size = parseInt(el.getAttribute('data-size') || '18', 10);
+        el.innerHTML = icon(name, size);
+    });
+
+    // Header-Logo
+    const headerLogo = document.getElementById('header-logo');
+    if (headerLogo) {
+        headerLogo.innerHTML = icon('receipt', 22);
+    }
+
+    // Close-Buttons
+    document.querySelectorAll('.btn-close').forEach(btn => {
+        btn.innerHTML = icon('x', 16);
+    });
+}
+
+// ============================================================
 // NUI-Kommunikation
 // ============================================================
 
@@ -60,11 +86,12 @@ window.addEventListener('message', (event) => {
  */
 function openApp(mode, data = {}) {
     currentMode = mode;
-    document.getElementById('app').classList.remove('hidden');
+    const app = document.getElementById('app');
+    app.classList.remove('hidden');
+    app.classList.toggle('admin-mode', mode === 'admin');
 
-    // Alle Views verstecken
     document.querySelectorAll('.view').forEach(v => v.classList.add('hidden'));
-    document.getElementById('admin-nav').classList.add('hidden');
+    document.getElementById('admin-sidebar').classList.add('hidden');
 
     if (mode === 'player') {
         document.getElementById('header-title').textContent = 'Meine Rechnungen';
@@ -79,11 +106,13 @@ function openApp(mode, data = {}) {
         initCreateForm(data);
 
     } else if (mode === 'admin') {
-        document.getElementById('header-title').textContent = 'Rechnungs-Adminpanel';
-        document.getElementById('header-subtitle').textContent = 'Verwaltung & Einstellungen';
-        document.getElementById('admin-nav').classList.remove('hidden');
+        document.getElementById('header-title').textContent = 'Adminpanel';
+        document.getElementById('header-subtitle').textContent = 'Rechnungssystem Verwaltung';
+        document.getElementById('admin-sidebar').classList.remove('hidden');
         switchTab('invoices');
     }
+
+    injectIcons();
 }
 
 // ============================================================
@@ -131,7 +160,7 @@ function renderInvoiceCard(inv, onClick) {
     return `
         <div class="invoice-card" onclick="${onClick}(${inv.id})">
             <div class="invoice-card-header">
-                <span class="invoice-number">${inv.invoice_number}</span>
+                <span class="invoice-number">${icon('file-text', 14)} ${inv.invoice_number}</span>
                 <span class="status-badge ${statusClass}">${getStatusLabel(inv.payment_status)}</span>
             </div>
             <div class="invoice-card-body">
@@ -155,7 +184,7 @@ function renderInvoiceCard(inv, onClick) {
 function renderEmptyState(message) {
     return `
         <div class="empty-state">
-            <div class="icon">📭</div>
+            <div class="empty-icon">${icon('inbox', 28)}</div>
             <p>${message}</p>
         </div>
     `;
@@ -303,7 +332,7 @@ async function submitCreateInvoice(e) {
 // ============================================================
 
 function switchTab(tab) {
-    document.querySelectorAll('.nav-btn').forEach(btn => {
+    document.querySelectorAll('.sidebar-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === tab);
     });
 
@@ -322,6 +351,8 @@ function switchTab(tab) {
         document.getElementById('view-admin-settings').classList.remove('hidden');
         loadGlobalSettings();
     }
+
+    injectIcons();
 }
 
 // ============================================================
@@ -330,7 +361,56 @@ function switchTab(tab) {
 
 async function loadAdminInvoices() {
     adminInvoices = await nuiFetch('getAllInvoices');
+    renderAdminStats(adminInvoices);
     renderAdminInvoices(adminInvoices);
+    injectIcons();
+}
+
+/**
+ * Rendert Statistik-Karten im Adminpanel
+ */
+function renderAdminStats(invoices) {
+    const stats = {
+        total: invoices.length,
+        open: invoices.filter(i => i.payment_status === 'open').length,
+        paid: invoices.filter(i => i.payment_status === 'paid').length,
+        overdue: invoices.filter(i => i.payment_status === 'overdue').length
+    };
+
+    const totalRevenue = invoices
+        .filter(i => i.payment_status === 'paid')
+        .reduce((sum, i) => sum + parseFloat(i.gross_amount || 0), 0);
+
+    document.getElementById('admin-stats').innerHTML = `
+        <div class="stat-card">
+            <div class="stat-icon info">${icon('file-text', 18)}</div>
+            <div class="stat-content">
+                <div class="stat-value">${stats.total}</div>
+                <div class="stat-label">Gesamt</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon warning">${icon('clock', 18)}</div>
+            <div class="stat-content">
+                <div class="stat-value">${stats.open}</div>
+                <div class="stat-label">Offen</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon success">${icon('check-circle', 18)}</div>
+            <div class="stat-content">
+                <div class="stat-value">${stats.paid}</div>
+                <div class="stat-label">Bezahlt · ${formatMoney(totalRevenue)} Umsatz</div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon danger">${icon('alert-circle', 18)}</div>
+            <div class="stat-content">
+                <div class="stat-value">${stats.overdue}</div>
+                <div class="stat-label">Überfällig</div>
+            </div>
+        </div>
+    `;
 }
 
 function searchAdminInvoices() {
@@ -415,16 +495,16 @@ function showInvoiceDetailModal(inv, mode) {
     // Aktionen je nach Modus
     if (mode === 'player' && (inv.payment_status === 'open' || inv.payment_status === 'overdue')) {
         actions.innerHTML = `
-            <div class="payment-buttons" style="width:100%">
-                <button class="btn btn-success" onclick="payInvoice(${inv.id}, 'bank')">🏦 Per Bank bezahlen</button>
-                <button class="btn btn-success" onclick="payInvoice(${inv.id}, 'cash')">💵 Bar bezahlen</button>
+            <div class="payment-buttons">
+                <button class="btn btn-success" onclick="payInvoice(${inv.id}, 'bank')">${icon('credit-card', 16)} Per Bank bezahlen</button>
+                <button class="btn btn-success" onclick="payInvoice(${inv.id}, 'cash')">${icon('banknote', 16)} Bar bezahlen</button>
             </div>
         `;
     } else if (mode === 'admin') {
         actions.innerHTML = `
-            <button class="btn btn-secondary" onclick="openEditModal(${inv.id})">✏️ Bearbeiten</button>
-            <button class="btn btn-danger" onclick="cancelInvoice(${inv.id})">❌ Stornieren</button>
-            <button class="btn btn-danger" onclick="deleteInvoice(${inv.id})">🗑️ Löschen</button>
+            <button class="btn btn-secondary" onclick="openEditModal(${inv.id})">${icon('edit', 16)} Bearbeiten</button>
+            <button class="btn btn-danger" onclick="cancelInvoice(${inv.id})">${icon('x', 16)} Stornieren</button>
+            <button class="btn btn-danger" onclick="deleteInvoice(${inv.id})">${icon('trash', 16)} Löschen</button>
         `;
     } else {
         actions.innerHTML = '';
@@ -510,9 +590,10 @@ async function loadJobsTab() {
     const select = document.getElementById('job-select');
     select.innerHTML = '<option value="">-- Job auswählen oder neu --</option>';
     allJobs.forEach(job => {
-        const hasSettings = jobSettingsCache[job.name] ? ' ✓' : '';
+        const hasSettings = jobSettingsCache[job.name] ? ' • konfiguriert' : '';
         select.innerHTML += `<option value="${job.name}">${job.label} (${job.name})${hasSettings}</option>`;
     });
+    injectIcons();
 }
 
 function loadJobSettingsForm() {
@@ -580,9 +661,10 @@ async function loadSocietiesTab() {
     const select = document.getElementById('society-select');
     select.innerHTML = '<option value="">-- Firma auswählen oder neu --</option>';
     allSocieties.forEach(soc => {
-        const hasInfo = societyInfoCache[soc.name] ? ' ✓' : '';
+        const hasInfo = societyInfoCache[soc.name] ? ' • konfiguriert' : '';
         select.innerHTML += `<option value="${soc.name}">${soc.label} (${soc.name})${hasInfo}</option>`;
     });
+    injectIcons();
 }
 
 function loadSocietyInfoForm() {
@@ -669,6 +751,9 @@ async function saveGlobalSettings() {
 
     await nuiFetch('saveGlobalSettings', settings);
 }
+
+// Initial Icons beim Laden
+document.addEventListener('DOMContentLoaded', injectIcons);
 
 // ESC-Taste
 document.addEventListener('keydown', (e) => {
