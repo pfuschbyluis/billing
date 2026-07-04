@@ -149,6 +149,32 @@ local function GetDefaultTemplates()
     }
 end
 
+--- Baut Chart-Daten für die letzten N Tage
+---@param invoices table
+---@param days number
+---@return table
+local function BuildChartData(invoices, days)
+    local labels = {}
+    local values = {}
+
+    for i = days - 1, 0, -1 do
+        local ts = os.time() - (i * 86400)
+        local day = os.date('%Y-%m-%d', ts)
+        labels[#labels + 1] = os.date('%d.%m', ts)
+
+        local dayTotal = 0
+        for _, inv in ipairs(invoices) do
+            local createdDay = string.sub(tostring(inv.created_at or ''), 1, 10)
+            if createdDay == day then
+                dayTotal = dayTotal + (tonumber(inv.gross_amount) or 0)
+            end
+        end
+        values[#values + 1] = dayTotal
+    end
+
+    return { labels = labels, values = values }
+end
+
 --- Debug-Ausgabe nur wenn Config.Debug aktiv
 local function DebugPrint(...)
     if Config.Debug then
@@ -1036,18 +1062,60 @@ ESX.RegisterServerCallback('esx_rechnungen:getDashboardData', function(source, c
             stats.today_count = stats.today_count + 1
             stats.today_amount = stats.today_amount + gross
         end
-        if inv.payment_status == 'open' or inv.payment_status == 'overdue' then
+        if inv.payment_status == 'open' then
             stats.open = stats.open + 1
             stats.open_amount = stats.open_amount + gross
-            if inv.payment_status == 'overdue' then
-                stats.open_amount = stats.open_amount + (tonumber(inv.reminder_fee) or 0)
-            end
-        elseif inv.payment_status == 'paid' then
-            stats.paid = stats.paid + 1
         elseif inv.payment_status == 'overdue' then
             stats.overdue = stats.overdue + 1
+            stats.open = stats.open + 1
+            stats.open_amount = stats.open_amount + gross + (tonumber(inv.reminder_fee) or 0)
+        elseif inv.payment_status == 'paid' then
+            stats.paid = stats.paid + 1
         end
     end
+
+    local totalAmount = 0
+    for _, inv in ipairs(all) do
+        totalAmount = totalAmount + (tonumber(inv.gross_amount) or 0)
+    end
+    stats.total_amount = totalAmount
+    stats.avg_invoice = #all > 0 and math.floor(totalAmount / #all) or 0
+
+    stats.chart_created = BuildChartData(created, 14)
+    stats.chart_received = BuildChartData(received, 14)
+    stats.chart = stats.chart_created
+
+    local chartSum = 0
+    for _, v in ipairs(stats.chart_created.values) do
+        chartSum = chartSum + v
+    end
+    stats.avg_day = math.floor(chartSum / 14)
+
+    local recentPayments = {}
+    for _, inv in ipairs(all) do
+        if inv.payment_status == 'paid' or inv.payment_status == 'cancelled' then
+            recentPayments[#recentPayments + 1] = inv
+        end
+    end
+    table.sort(recentPayments, function(a, b)
+        local ta = tostring(a.paid_at or a.updated_at or a.created_at or '')
+        local tb = tostring(b.paid_at or b.updated_at or b.created_at or '')
+        return ta > tb
+    end)
+
+    local recent = {}
+    for i = 1, math.min(6, #recentPayments) do
+        local inv = recentPayments[i]
+        recent[#recent + 1] = {
+            invoice_number = inv.invoice_number,
+            payer_name = inv.recipient_name,
+            amount = inv.gross_amount,
+            paid_at = inv.paid_at or inv.updated_at,
+            created_at = inv.created_at,
+            status = inv.payment_status == 'cancelled' and 'cancelled' or 'paid'
+        }
+    end
+    stats.recent_payments = recent
 
     for _, list in ipairs({ received, created }) do
         for _, inv in ipairs(list) do

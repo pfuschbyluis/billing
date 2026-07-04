@@ -17,7 +17,10 @@ var state = {
     societies: [],
     societyInfo: {},
     globalSettings: {},
-    selectedInvoice: null
+    selectedInvoice: null,
+    pendingTemplate: null,
+    chartScope: 'created',
+    chartRange: 14
 };
 
 function getResourceName() {
@@ -44,6 +47,14 @@ function closeMenu() {
 function formatMoney(n) {
     var v = parseFloat(n) || 0;
     return v.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
+}
+
+function formatMoneyShort(n) {
+    var v = parseFloat(n) || 0;
+    if (v === Math.floor(v)) {
+        return Math.floor(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €';
+    }
+    return formatMoney(v);
 }
 
 function formatDate(d) {
@@ -87,12 +98,15 @@ function refreshDashboard(cb) {
 
 function updateTabsVisibility() {
     var d = state.data || {};
-    var adminTab = document.getElementById('tab-admin');
+    var adminBtn = document.getElementById('btn-admin');
     var createTab = document.querySelector('.billing-tab[data-tab="create"]');
-    if (adminTab) adminTab.classList.toggle('hidden', !d.isAdmin);
+    if (adminBtn) {
+        adminBtn.classList.toggle('hidden', !d.isAdmin);
+        setIcon(adminBtn, 'shield', 16);
+    }
     if (createTab) {
         createTab.classList.toggle('disabled', !d.canCreate);
-        if (!d.canCreate) createTab.title = 'Mit deinem Job nicht verfügbar';
+        createTab.title = d.canCreate ? '' : 'Mit deinem Job nicht verfügbar';
     }
 }
 
@@ -113,9 +127,23 @@ function setActiveTab(tab) {
     renderCurrentTab();
 }
 
+function openAdminPanel() {
+    if (!(state.data && state.data.isAdmin)) return;
+    state.tab = 'admin';
+    var panel = document.getElementById('billing-panel');
+    var header = document.querySelector('.billing-header');
+    var tabs = document.getElementById('billing-tabs');
+    if (panel) panel.classList.remove('invoice-create-mode');
+    if (header) header.classList.remove('hidden');
+    if (tabs) tabs.classList.remove('hidden');
+    document.querySelectorAll('.billing-tab').forEach(function(t) { t.classList.remove('active'); });
+    renderAdmin();
+}
+
 function renderCurrentTab() {
     if (state.tab === 'overview') renderOverview();
     else if (state.tab === 'statistics') renderStatistics();
+    else if (state.tab === 'templates') renderTemplates();
     else if (state.tab === 'create') renderCreate();
     else if (state.tab === 'admin') renderAdmin();
 }
@@ -130,8 +158,8 @@ function renderOverview() {
     var html = '<div class="stats-grid">' +
         statCard('GESAMT RECHNUNGEN', stats.total || 0) +
         statCard('OFFENE RECHNUNGEN', stats.open || 0) +
-        statCard('OFFENER BETRAG', formatMoney(stats.open_amount || 0)) +
-        statCard('HEUTE', (stats.today_count || 0) + ' (' + formatMoney(stats.today_amount || 0) + ')') +
+        statCard('OFFENER BETRAG', formatMoneyShort(stats.open_amount || 0)) +
+        statCard('HEUTE', (stats.today_count || 0) + ' (' + formatMoneyShort(stats.today_amount || 0) + ')') +
         '</div>';
 
     html += '<div class="list-toolbar">' +
@@ -221,16 +249,16 @@ function renderInvoiceList() {
             '<div class="invoice-row-top">' +
             '<span class="invoice-number">' + esc(inv.invoice_number) + '</span>' +
             '<span class="status-badge ' + statusClass(inv.payment_status) + '">' + statusLabel(inv.payment_status) + '</span>' +
-            '<span class="invoice-date">' + formatDate(inv.created_at) + '</span>' +
+            '<span class="date-pill">' + formatDate(inv.created_at) + '</span>' +
             '</div>' +
             '<div class="invoice-row-meta">' +
             '<span>Ersteller: <strong>' + esc(inv.issuer_name || '-') + '</strong></span>' +
             '<span>Empfänger: <strong>' + esc(inv.recipient_name || '-') + '</strong></span>' +
-            '<span>Betrag: <strong>' + formatMoney(total) + '</strong></span>' +
+            '<span>Betrag: <strong>' + formatMoneyShort(total) + '</strong></span>' +
             '</div></div>' +
             '<div class="invoice-row-actions">' +
             '<button class="btn btn-view" type="button" data-view="' + inv.id + '">ANSEHEN</button>' +
-            (canDelete ? '<button class="btn btn-icon btn-danger btn-del" type="button" data-del="' + inv.id + '" title="Löschen">' + iconHtml('trash', 14) + '</button>' : '') +
+            (canDelete ? '<button class="btn btn-icon btn-del" type="button" data-del="' + inv.id + '" title="Löschen">' + iconHtml('trash', 14) + '</button>' : '') +
             '</div></div>';
     }).join('');
 
@@ -345,33 +373,203 @@ function detailRow(label, val, total) {
 function renderStatistics() {
     var d = state.data || {};
     var stats = d.stats || {};
-    var total = stats.total || 0;
-    var max = Math.max(stats.open || 0, stats.paid || 0, stats.overdue || 0, 1);
+    var chart = stats.chart || { labels: [], values: [] };
 
-    var html = '<div class="stats-detail-grid">' +
-        '<div class="stat-block"><div class="big">' + (stats.total || 0) + '</div><div class="lbl">Gesamt</div></div>' +
-        '<div class="stat-block"><div class="big">' + formatMoney(stats.open_amount || 0) + '</div><div class="lbl">Offener Betrag</div></div>' +
-        '<div class="stat-block"><div class="big">' + (stats.today_count || 0) + '</div><div class="lbl">Heute erstellt</div></div>' +
+    var html = '<div class="stats-page-top">' +
+        '<div class="stat-block"><div class="big">' + (stats.total || 0) + '</div><div class="lbl">RECHNUNGEN</div></div>' +
+        '<div class="stat-block"><div class="big">' + formatMoneyShort(stats.total_amount || 0) + '</div><div class="lbl">GESAMTBETRAG</div></div>' +
+        '<div class="stat-block"><div class="big">' + formatMoneyShort(stats.avg_invoice || 0) + '</div><div class="lbl">Ø / RECHNUNG</div></div>' +
+        '<div class="stat-block"><div class="big">' + formatMoneyShort(stats.avg_day || 0) + '</div><div class="lbl">Ø / TAG</div></div>' +
         '</div>';
 
-    html += '<div class="section-title">STATUS-VERTEILUNG</div>';
-    html += '<div class="bar-chart">' +
-        barRow('Offen', stats.open || 0, max, 'open') +
-        barRow('Bezahlt', stats.paid || 0, max, 'paid') +
-        barRow('Überfällig', stats.overdue || 0, max, 'overdue') +
-        '</div>';
+    html += '<div class="chart-card">' +
+        '<div class="chart-card-header"><h3>DIAGRAMM</h3>' +
+        '<div class="chart-filters">' +
+        '<select id="chart-scope"><option value="created">Erstellt</option><option value="received">Empfangen</option></select>' +
+        '<select id="chart-range"><option value="7">1 Woche</option><option value="14" selected>2 Wochen</option></select>' +
+        '</div></div>' +
+        '<svg class="chart-svg" id="line-chart" viewBox="0 0 800 180" preserveAspectRatio="none"></svg></div>';
 
-    html += '<div class="section-title">HEUTE</div>';
-    html += '<div class="preview-box">' +
-        detailRow('Anzahl', stats.today_count || 0) +
-        detailRow('Volumen', formatMoney(stats.today_amount || 0), true) +
+    html += '<div class="stats-bottom">' +
+        '<div class="donut-card"><h3>STATUS</h3><div class="donut-wrap">' +
+        '<svg class="donut-svg" id="donut-chart" viewBox="0 0 120 120"></svg>' +
+        '<div class="donut-legend">' +
+        '<div class="legend-item"><span class="legend-dot open"></span>Offen<strong>' + (stats.open || 0) + '</strong></div>' +
+        '<div class="legend-item"><span class="legend-dot overdue"></span>Überfällig<strong>' + (stats.overdue || 0) + '</strong></div>' +
+        '<div class="legend-item"><span class="legend-dot paid"></span>Bezahlt<strong>' + (stats.paid || 0) + '</strong></div>' +
+        '</div></div></div>' +
+        '<div class="recent-card"><h3>LETZTE ZAHLUNGEN</h3><div class="recent-list" id="recent-payments"></div></div>' +
         '</div>';
-
-    if (total === 0) {
-        html += '<div class="empty-state" style="padding:24px">Noch keine Rechnungsdaten vorhanden.</div>';
-    }
 
     document.getElementById('billing-body').innerHTML = html;
+
+    document.getElementById('chart-scope').value = state.chartScope;
+    document.getElementById('chart-range').value = String(state.chartRange);
+    document.getElementById('chart-scope').onchange = function() {
+        state.chartScope = this.value;
+        drawLineChart(getChartData());
+    };
+    document.getElementById('chart-range').onchange = function() {
+        state.chartRange = parseInt(this.value) || 14;
+        drawLineChart(getChartData());
+    };
+
+    drawLineChart(getChartData());
+    drawDonutChart(stats.open || 0, stats.overdue || 0, stats.paid || 0);
+    renderRecentPayments(stats.recent_payments || []);
+}
+
+function getChartData() {
+    var stats = (state.data && state.data.stats) || {};
+    var key = state.chartScope === 'received' ? 'chart_received' : 'chart_created';
+    var chart = stats[key] || stats.chart || { labels: [], values: [] };
+    var range = state.chartRange || 14;
+    var labels = (chart.labels || []).slice(-range);
+    var values = (chart.values || []).slice(-range);
+    return { labels: labels, values: values };
+}
+
+function drawLineChart(data) {
+    var svg = document.getElementById('line-chart');
+    if (!svg) return;
+
+    var labels = data.labels || [];
+    var values = data.values || [];
+    var w = 800, h = 180, pad = { t: 20, r: 20, b: 30, l: 50 };
+    var max = Math.max.apply(null, values.concat([1]));
+
+    var points = [];
+    var step = labels.length > 1 ? (w - pad.l - pad.r) / (labels.length - 1) : 0;
+
+    for (var i = 0; i < values.length; i++) {
+        var x = pad.l + step * i;
+        var y = pad.t + (h - pad.t - pad.b) * (1 - values[i] / max);
+        points.push(x + ',' + y);
+    }
+
+    var linePath = points.length ? 'M' + points.join(' L') : '';
+    var areaPath = linePath;
+    if (points.length) {
+        areaPath += ' L' + (pad.l + step * (values.length - 1)) + ',' + (h - pad.b);
+        areaPath += ' L' + pad.l + ',' + (h - pad.b) + ' Z';
+    }
+
+    var grid = '';
+    for (var g = 0; g <= 4; g++) {
+        var gy = pad.t + (h - pad.t - pad.b) * (g / 4);
+        grid += '<line x1="' + pad.l + '" y1="' + gy + '" x2="' + (w - pad.r) + '" y2="' + gy + '" stroke="rgba(125,82,255,0.1)" stroke-width="1"/>';
+    }
+
+    var xLabels = '';
+    labels.forEach(function(lbl, i) {
+        if (labels.length > 8 && i % 2 !== 0 && i !== labels.length - 1) return;
+        var x = pad.l + step * i;
+        xLabels += '<text x="' + x + '" y="' + (h - 8) + '" fill="#6b6578" font-size="11" text-anchor="middle">' + esc(lbl) + '</text>';
+    });
+
+    svg.innerHTML = grid +
+        '<defs><linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#7d52ff" stop-opacity="0.35"/>' +
+        '<stop offset="100%" stop-color="#7d52ff" stop-opacity="0"/></linearGradient></defs>' +
+        (areaPath ? '<path d="' + areaPath + '" fill="url(#chartGrad)"/>' : '') +
+        (linePath ? '<path d="' + linePath + '" fill="none" stroke="#7d52ff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
+        xLabels;
+}
+
+function drawDonutChart(open, overdue, paid) {
+    var svg = document.getElementById('donut-chart');
+    if (!svg) return;
+
+    var total = open + overdue + paid;
+    if (total === 0) {
+        svg.innerHTML = '<circle cx="60" cy="60" r="42" fill="none" stroke="rgba(125,82,255,0.15)" stroke-width="14"/>' +
+            '<text x="60" y="58" text-anchor="middle" fill="#9b95b0" font-size="11" font-weight="700">Total</text>' +
+            '<text x="60" y="74" text-anchor="middle" fill="#7d52ff" font-size="16" font-weight="800">0</text>';
+        return;
+    }
+
+    var segments = [
+        { val: open, color: '#5b9cf5' },
+        { val: overdue, color: '#f5a623' },
+        { val: paid, color: '#3dd68c' }
+    ];
+
+    var r = 42, cx = 60, cy = 60, circ = 2 * Math.PI * r;
+    var offset = 0;
+    var arcs = '';
+
+    segments.forEach(function(seg) {
+        if (seg.val <= 0) return;
+        var len = (seg.val / total) * circ;
+        arcs += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + seg.color + '" stroke-width="14" ' +
+            'stroke-dasharray="' + len + ' ' + (circ - len) + '" stroke-dashoffset="' + (-offset) + '" transform="rotate(-90 ' + cx + ' ' + cy + ')"/>';
+        offset += len;
+    });
+
+    svg.innerHTML = arcs +
+        '<text x="60" y="56" text-anchor="middle" fill="#9b95b0" font-size="10" font-weight="700">Total</text>' +
+        '<text x="60" y="74" text-anchor="middle" fill="#7d52ff" font-size="18" font-weight="800">' + total + '</text>';
+}
+
+function renderRecentPayments(payments) {
+    var el = document.getElementById('recent-payments');
+    if (!el) return;
+
+    if (!payments.length) {
+        el.innerHTML = '<div class="empty-state" style="padding:20px">Keine Zahlungen</div>';
+        return;
+    }
+
+    el.innerHTML = payments.map(function(p) {
+        var st = p.status === 'cancelled' ? 'cancelled' : 'paid';
+        var lbl = p.status === 'cancelled' ? 'STORNIERT' : 'BEZAHLT';
+        var desc = p.status === 'cancelled'
+            ? ('Storniert – ' + esc(p.invoice_number))
+            : (esc(p.payer_name || 'Unbekannt') + ' bezahlte ' + formatMoneyShort(p.amount));
+        return '<div class="recent-item">' +
+            '<div class="recent-item-top">' +
+            '<span class="status-badge status-' + (st === 'paid' ? 'paid' : 'cancelled') + '">' + lbl + '</span>' +
+            '<span class="recent-id">' + esc(p.invoice_number) + '</span>' +
+            '<span class="recent-time">' + formatDate(p.paid_at || p.created_at) + '</span>' +
+            '</div><div class="recent-desc">' + desc + '</div></div>';
+    }).join('');
+}
+
+// ============================================================
+// VORLAGEN
+// ============================================================
+
+function renderTemplates() {
+    var d = state.data || {};
+    var templates = (d.createData && d.createData.templates) || DEFAULT_TEMPLATES;
+
+    if (!d.canCreate) {
+        document.getElementById('billing-body').innerHTML =
+            '<div class="empty-state">Vorlagen sind nur für berechtigte Jobs verfügbar.</div>';
+        return;
+    }
+
+    document.getElementById('billing-body').innerHTML =
+        '<div class="section-title">RECHNUNGS-VORLAGEN</div>' +
+        '<div class="template-grid" id="template-grid"></div>';
+
+    var grid = document.getElementById('template-grid');
+    grid.innerHTML = templates.map(function(tpl, i) {
+        var preview = (tpl.items || []).map(function(it) {
+            return it.description + ' (' + formatMoneyShort((it.units || 1) * (it.price || 0)) + ')';
+        }).join(', ');
+        return '<div class="template-card" data-idx="' + i + '">' +
+            '<h4>' + esc(tpl.name) + '</h4>' +
+            '<p>' + esc(tpl.notes || 'Schnellvorlage für häufige Rechnungen') + '</p>' +
+            '<div class="template-preview">' + esc(preview) + '</div></div>';
+    }).join('');
+
+    grid.querySelectorAll('.template-card').forEach(function(card) {
+        card.onclick = function() {
+            state.pendingTemplate = parseInt(card.dataset.idx);
+            setActiveTab('create');
+        };
+    });
 }
 
 function barRow(label, val, max, cls) {
@@ -490,6 +688,18 @@ function renderCreate() {
     initSignaturePad();
     loadCreateRecipients(s);
     updateInvoiceTotals(taxRate);
+
+    if (state.pendingTemplate !== null && state.pendingTemplate !== undefined) {
+        var tplIdx = state.pendingTemplate;
+        state.pendingTemplate = null;
+        setTimeout(function() {
+            var sel = document.getElementById('inv-template');
+            if (sel) {
+                sel.value = String(tplIdx);
+                sel.onchange();
+            }
+        }, 50);
+    }
 }
 
 function loadCreateRecipients(settings) {
@@ -1121,13 +1331,15 @@ function openDashboard(data) {
     state.adminTab = 'invoices';
 
     document.getElementById('billing-player-name').textContent = state.data.playerName || 'Spieler';
+    setIcon(document.getElementById('swap-icon'), 'repeat', 14);
     updateTabsVisibility();
 
     var root = document.getElementById('billing-root');
     root.classList.remove('hidden');
     requestAnimationFrame(function() { root.classList.add('open'); });
 
-    setActiveTab(state.tab);
+    if (state.data.tab === 'admin') openAdminPanel();
+    else setActiveTab(state.tab);
 }
 
 window.addEventListener('message', function(e) {
@@ -1147,6 +1359,7 @@ window.addEventListener('message', function(e) {
 
 document.getElementById('btn-close').onclick = closeMenu;
 document.getElementById('detail-close').onclick = closeDetailModal;
+document.getElementById('btn-admin').onclick = openAdminPanel;
 
 document.querySelectorAll('.billing-tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
@@ -1154,7 +1367,6 @@ document.querySelectorAll('.billing-tab').forEach(function(tab) {
             showToast('Du darfst keine Rechnungen ausstellen.', 'warning');
             return;
         }
-        if (tab.dataset.tab === 'admin' && !(state.data && state.data.isAdmin)) return;
         setActiveTab(tab.dataset.tab);
     });
 });

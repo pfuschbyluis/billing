@@ -6,7 +6,7 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Billing-Dashbo
 
 - **Eigenes Billing-Dashboard** – kein ox_lib, kein Browser-Fenster
 - Großes, zentriertes Panel im Spiel (RiP-Style, dunkles Lila-Design)
-- Tabs: Übersicht, Statistik, Rechnung erstellen, Admin
+- Tabs: Übersicht, Statistik, Vorlagen, Rechnung erstellen (Admin per Schild-Icon)
 - Statistik-Karten, ERSTELLT/EMPFANGEN-Untertabs, Suche & Filter
 - Rechnungszeilen mit Status-Badge, ANSEHEN und Admin-Löschen
 - SVG-Icons, Ingame-Dialoge und Toasts
@@ -45,10 +45,11 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Billing-Dashbo
 
 Mit **F7** öffnet sich das zentrale Billing-Panel:
 
-- **Übersicht** – Statistik-Karten, Rechnungsliste (Erstellt/Empfangen), Suche & Filter
-- **Statistik** – Status-Verteilung und Tageswerte
-- **Rechnung erstellen** – Papier-Layout mit Positionen, Vorlagen, Notizen und Unterschrift
-- **Admin** – Rechnungen, Jobs, Firmen, Systemeinstellungen (nur Admins)
+- **Übersicht** – Statistik-Karten (lila Werte), Rechnungsliste, ERSTELLT/EMPFANGEN, Suche & Filter
+- **Statistik** – Diagramm, Status-Donut, letzte Zahlungen
+- **Vorlagen** – Schnellvorlagen für Rechnungserstellung
+- **Rechnung erstellen** – Papier-Formular mit Positionen und Unterschrift
+- **Admin** – Schild-Icon oben rechts (nur Admins)
 
 F7 erneut drücken schließt das Dashboard.
 

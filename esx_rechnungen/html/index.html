@@ -13,23 +13,25 @@
             <header class="billing-header">
                 <div class="billing-brand">
                     <div class="billing-logo">R</div>
-                    <div class="billing-brand-text">
-                        <h1>RECHNUNGEN</h1>
-                        <div class="billing-player">
-                            <span id="billing-player-name">Spieler</span>
-                        </div>
+                    <h1>RECHNUNGEN</h1>
+                    <div class="billing-player-inline">
+                        <span id="billing-player-name">Spieler</span>
+                        <span class="swap-icon" id="swap-icon"></span>
                     </div>
                 </div>
-                <button class="billing-esc" id="btn-close" type="button">
-                    <span class="esc-key">ESC</span>
-                </button>
+                <div class="billing-header-actions">
+                    <button class="btn-header-icon hidden" id="btn-admin" type="button" title="Admin"></button>
+                    <button class="billing-esc" id="btn-close" type="button">
+                        <span class="esc-key">ESC</span>
+                    </button>
+                </div>
             </header>
 
             <nav class="billing-tabs" id="billing-tabs">
                 <button class="billing-tab active" data-tab="overview" type="button">ÜBERSICHT</button>
                 <button class="billing-tab" data-tab="statistics" type="button">STATISTIK</button>
+                <button class="billing-tab" data-tab="templates" type="button">VORLAGEN</button>
                 <button class="billing-tab" data-tab="create" type="button">RECHNUNG ERSTELLEN</button>
-                <button class="billing-tab hidden" data-tab="admin" type="button" id="tab-admin">ADMIN</button>
             </nav>
 
             <div class="billing-body" id="billing-body"></div>
