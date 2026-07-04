@@ -11,36 +11,40 @@
     <div id="billing-root" class="hidden">
         <div class="billing-panel" id="billing-panel">
             <aside class="billing-sidebar" id="billing-sidebar">
-                <div class="sidebar-profile">
+                <button class="account-switch" id="account-switch" type="button">
                     <div class="sidebar-avatar" id="sidebar-avatar">R</div>
-                    <div class="sidebar-profile-text">
+                    <div class="account-switch-text">
                         <div class="sidebar-name" id="billing-player-name">Spieler</div>
-                        <button class="account-switch" id="account-switch" type="button">
-                            <span class="online-dot"></span>
-                            <span id="account-label">Persönliches Konto</span>
-                            <span class="account-switch-icon" data-icon="repeat"></span>
-                        </button>
+                        <div class="account-sub"><span class="online-dot"></span><span id="account-label">Persönliches Konto</span></div>
                     </div>
-                </div>
+                    <span class="account-switch-icon" data-icon="chevron-down"></span>
+                </button>
 
+                <div class="nav-section-label">Navigation</div>
                 <nav class="sidebar-nav" id="sidebar-nav">
                     <button class="sidebar-item active" data-tab="dashboard" type="button">
-                        <span class="sidebar-icon" data-icon="list"></span>
+                        <span class="sidebar-icon" data-icon="grid"></span>
                         Dashboard
                     </button>
                     <button class="sidebar-item" data-tab="received" type="button">
                         <span class="sidebar-icon" data-icon="inbox"></span>
-                        Empfangen
+                        Empfangene Rechnungen
                         <span class="nav-badge hidden" id="badge-received">0</span>
                     </button>
                     <button class="sidebar-item" data-tab="sent" type="button">
-                        <span class="sidebar-icon" data-icon="receipt"></span>
-                        Gesendet
+                        <span class="sidebar-icon" data-icon="send"></span>
+                        Gesendete Rechnungen
+                    </button>
+                    <button class="sidebar-item" data-tab="lookup" type="button">
+                        <span class="sidebar-icon" data-icon="search"></span>
+                        Bürger-Suche
                     </button>
                     <button class="sidebar-item" data-tab="contacts" type="button">
                         <span class="sidebar-icon" data-icon="users"></span>
                         Kontakte
                     </button>
+
+                    <div class="nav-section-label">Verwaltung</div>
                     <button class="sidebar-item" data-tab="statistics" type="button">
                         <span class="sidebar-icon" data-icon="hash"></span>
                         Statistik

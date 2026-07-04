@@ -39,19 +39,19 @@ Config.Locations = {
 -- UI
 -- ============================================================
 Config.UI = {
-  width = 1100,
+  width = 1200,
   position = 'center',
   colors = {
-    accent = '#7d52ff',
-    accent_glow = 'rgba(125, 82, 255, 0.45)',
-    background = 'rgba(15, 15, 19, 0.94)',
-    card = 'rgba(20, 20, 28, 0.85)',
-    text = '#ffffff',
-    text_dim = '#9b95b0',
-    success = '#3dd68c',
+    accent = '#2fd07a',
+    accent_glow = 'rgba(47, 208, 122, 0.35)',
+    background = '#0b0d10',
+    card = '#14181e',
+    text = '#eef0f3',
+    text_dim = '#9aa0aa',
+    success = '#2fd07a',
     warning = '#f5a623',
-    danger = '#f06565',
-    info = '#5b9cf5',
+    danger = '#f0616d',
+    info = '#4f9bff',
   },
   logo = 'R',                      -- Logo-Buchstabe im Header
 }

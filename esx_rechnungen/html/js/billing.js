@@ -277,6 +277,7 @@ function openAdminPanel() {
 function renderCurrentTab() {
     if (state.tab === 'dashboard') renderDashboardPage();
     else if (state.tab === 'received' || state.tab === 'sent') renderInvoiceListPage(state.tab);
+    else if (state.tab === 'lookup') renderLookup();
     else if (state.tab === 'contacts') renderContacts();
     else if (state.tab === 'statistics') renderStatistics();
     else if (state.tab === 'templates') renderTemplates();
@@ -366,6 +367,23 @@ function getInvoiceTag(inv, dir) {
     return { cls: 'tag-sent', label: 'Gesendet' };
 }
 
+function smoothPath(points) {
+    if (points.length < 2) return points.length ? 'M' + points[0].x + ',' + points[0].y : '';
+    var d = 'M' + points[0].x + ',' + points[0].y;
+    for (var i = 0; i < points.length - 1; i++) {
+        var p0 = points[i - 1] || points[i];
+        var p1 = points[i];
+        var p2 = points[i + 1];
+        var p3 = points[i + 2] || p2;
+        var cp1x = p1.x + (p2.x - p0.x) / 6;
+        var cp1y = p1.y + (p2.y - p0.y) / 6;
+        var cp2x = p2.x - (p3.x - p1.x) / 6;
+        var cp2y = p2.y - (p3.y - p1.y) / 6;
+        d += ' C' + cp1x + ',' + cp1y + ' ' + cp2x + ',' + cp2y + ' ' + p2.x + ',' + p2.y;
+    }
+    return d;
+}
+
 function drawActivityChart7(data) {
     var svg = document.getElementById('activity-chart-7');
     if (!svg) return;
@@ -373,63 +391,69 @@ function drawActivityChart7(data) {
     var labels = data.labels || [];
     var earned = data.earned || [];
     var spent = data.spent || [];
-    var net = earned.map(function(e, i) { return e - (spent[i] || 0); });
-    var w = 600, h = 200, pad = { t: 24, r: 16, b: 28, l: 16 };
-    var max = Math.max.apply(null, net.concat([1]));
-    var min = Math.min.apply(null, net.concat([0]));
-    var range = Math.max(max - min, 1);
+    var w = 620, h = 210, pad = { t: 18, r: 14, b: 26, l: 14 };
+    var innerH = h - pad.t - pad.b;
+    var maxVal = Math.max.apply(null, earned.concat(spent).concat([1]));
     var step = labels.length > 1 ? (w - pad.l - pad.r) / (labels.length - 1) : 0;
-    var zeroY = pad.t + (h - pad.t - pad.b) * (max / range);
+    var baseY = h - pad.b;
 
-    var points = [];
-    for (var i = 0; i < net.length; i++) {
-        var x = pad.l + step * i;
-        var y = pad.t + (h - pad.t - pad.b) * (1 - (net[i] - min) / range);
-        points.push({ x: x, y: y, val: net[i] });
+    function buildPoints(series) {
+        return series.map(function(v, i) {
+            return {
+                x: pad.l + step * i,
+                y: pad.t + innerH * (1 - (v / maxVal))
+            };
+        });
     }
 
-    var path = points.length ? 'M' + points.map(function(p) { return p.x + ',' + p.y; }).join(' L') : '';
-    var area = path;
-    if (points.length) {
-        area += ' L' + points[points.length - 1].x + ',' + zeroY;
-        area += ' L' + points[0].x + ',' + zeroY + ' Z';
+    var earnedPts = buildPoints(earned);
+    var spentPts = buildPoints(spent);
+
+    function areaFrom(line, pts) {
+        if (!pts.length) return '';
+        return line + ' L' + pts[pts.length - 1].x + ',' + baseY + ' L' + pts[0].x + ',' + baseY + ' Z';
     }
 
-    var dots = points.map(function(p) {
-        var col = p.val >= 0 ? '#3dd68c' : '#f06565';
-        return '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="' + col + '"/>';
-    }).join('');
+    var earnedLine = smoothPath(earnedPts);
+    var spentLine = smoothPath(spentPts);
+
+    var gridLines = '';
+    for (var g = 0; g <= 3; g++) {
+        var gy = pad.t + (innerH / 3) * g;
+        gridLines += '<line x1="' + pad.l + '" y1="' + gy + '" x2="' + (w - pad.r) + '" y2="' + gy + '" stroke="rgba(255,255,255,0.04)" stroke-width="1"/>';
+    }
 
     var xLabels = labels.map(function(lbl, i) {
-        return '<text x="' + (pad.l + step * i) + '" y="' + (h - 6) + '" fill="#6b6578" font-size="11" text-anchor="middle">' + lbl + '</text>';
+        return '<text x="' + (pad.l + step * i) + '" y="' + (h - 6) + '" fill="#626873" font-size="11" text-anchor="middle">' + lbl + '</text>';
     }).join('');
 
-    var trend = 0;
-    if (net.length >= 2) {
-        var prev = net.slice(0, -1).reduce(function(a, b) { return a + b; }, 0);
-        var curr = net.reduce(function(a, b) { return a + b; }, 0);
-        trend = prev > 0 ? ((curr - prev) / prev) * 100 : (curr > 0 ? 100 : 0);
-    }
+    var totalEarned = earned.reduce(function(a, b) { return a + b; }, 0);
+    var totalSpent = spent.reduce(function(a, b) { return a + b; }, 0);
+    var trend = totalSpent > 0 ? ((totalEarned - totalSpent) / totalSpent) * 100 : (totalEarned > 0 ? 100 : 0);
 
     var trendEl = document.getElementById('dash-trend');
     if (trendEl) {
-        trendEl.textContent = (trend >= 0 ? '+' : '') + trend.toFixed(1) + '% vs. letzte 7 Tage';
-        trendEl.className = 'dash-trend ' + (trend >= 0 ? 'up' : 'down');
-    }
-
-    var segments = '';
-    for (var s = 1; s < points.length; s++) {
-        var prev = points[s - 1];
-        var curr = points[s];
-        var col = curr.val >= prev.val ? '#3dd68c' : '#f06565';
-        segments += '<line x1="' + prev.x + '" y1="' + prev.y + '" x2="' + curr.x + '" y2="' + curr.y + '" stroke="' + col + '" stroke-width="2.5" stroke-linecap="round"/>';
+        var up = trend >= 0;
+        trendEl.innerHTML = iconHtml(up ? 'trending-up' : 'alert-triangle', 12) +
+            ' ' + (up ? '+' : '') + trend.toFixed(1) + '% ggü. letzten 7 Tagen';
+        trendEl.className = 'dash-trend ' + (up ? 'up' : 'down');
     }
 
     svg.innerHTML =
-        '<line x1="' + pad.l + '" y1="' + zeroY + '" x2="' + (w - pad.r) + '" y2="' + zeroY + '" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>' +
-        (area ? '<path d="' + area + '" fill="rgba(125,82,255,0.12)"/>' : '') +
-        segments +
-        dots + xLabels;
+        '<defs>' +
+        '<linearGradient id="grad-earned" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#2fd07a" stop-opacity="0.35"/>' +
+        '<stop offset="100%" stop-color="#2fd07a" stop-opacity="0"/></linearGradient>' +
+        '<linearGradient id="grad-spent" x1="0" y1="0" x2="0" y2="1">' +
+        '<stop offset="0%" stop-color="#f0616d" stop-opacity="0.30"/>' +
+        '<stop offset="100%" stop-color="#f0616d" stop-opacity="0"/></linearGradient>' +
+        '</defs>' +
+        gridLines +
+        (earnedLine ? '<path d="' + areaFrom(earnedLine, earnedPts) + '" fill="url(#grad-earned)"/>' : '') +
+        (spentLine ? '<path d="' + areaFrom(spentLine, spentPts) + '" fill="url(#grad-spent)"/>' : '') +
+        (spentLine ? '<path d="' + spentLine + '" fill="none" stroke="#f0616d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
+        (earnedLine ? '<path d="' + earnedLine + '" fill="none" stroke="#2fd07a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>' : '') +
+        xLabels;
 }
 
 function renderDashboardPage() {
@@ -437,27 +461,36 @@ function renderDashboardPage() {
     var stats = d.stats || {};
     var activity = build7DayActivity();
     var recent = getMergedInvoices().slice(0, 6);
+    var isBusiness = state.accountMode === 'business';
+    var costLabel = isBusiness ? 'Rechnungsvolumen gesamt' : 'Gesamte Rechnungskosten';
 
     document.getElementById('billing-body').innerHTML =
-        '<div class="dash-header">' +
-        '<h2>Dashboard</h2>' +
-        '<p>Behalte alle deine Rechnungen an einem Ort im Blick – ob gesendet oder empfangen. ' +
-        'Das Diagramm zeigt deine Zahlungen und Einnahmen der letzten 7 Tage.</p>' +
+        '<div class="dash-topbar">' +
+        '<div class="dash-topbar-left">' +
+        '<div class="dash-topbar-icon">' + iconHtml('grid', 20) + '</div>' +
+        '<div class="dash-header"><h2>Dashboard</h2><p>Übersicht deiner Rechnungsaktivitäten</p></div>' +
+        '</div>' +
+        '<button class="dash-overview-btn" id="btn-overview">' + iconHtml('trending-up', 15) + ' Übersicht</button>' +
         '</div>' +
         '<div class="dash-summary">' +
-        '<div class="dash-summary-card"><div class="label">Gesamtvolumen</div><div class="value accent">' + formatMoneyShort(stats.total_amount || 0) + '</div></div>' +
-        '<div class="dash-summary-card"><div class="label">Offene Rechnungen</div><div class="value">' + (stats.open || 0) + '</div>' +
+        '<div class="dash-summary-card"><div class="dash-summary-icon">' + iconHtml('folder', 17) + '</div>' +
+        '<div class="label">' + costLabel + '</div><div class="value accent">' + formatMoneyShort(stats.total_amount || 0) + '</div></div>' +
+        '<div class="dash-summary-card"><div class="dash-summary-icon">' + iconHtml('alert-triangle', 17) + '</div>' +
+        '<div class="label">Offene Rechnungen</div><div class="value">' + (stats.open || 0) + '</div>' +
         (stats.open_amount ? '<div class="dash-summary-sub">' + formatMoneyShort(stats.open_amount) + ' ausstehend</div>' : '') +
         '</div>' +
         '</div>' +
         '<div class="dash-grid">' +
         '<div class="dash-widget">' +
-        '<div class="dash-widget-header"><div><h3>Rechnungsaktivität</h3><p>Finanzfluss der letzten 7 Tage</p></div>' +
-        '<span class="dash-trend up" id="dash-trend">—</span></div>' +
-        '<svg class="activity-chart" id="activity-chart-7" viewBox="0 0 600 200" preserveAspectRatio="xMidYMid meet"></svg>' +
+        '<div class="dash-widget-header"><div class="dash-widget-icon">' + iconHtml('trending-up', 16) + '</div>' +
+        '<div><h3>Rechnungsaktivität</h3><p>Übersicht deines Finanzflusses der letzten 7 Tage</p></div></div>' +
+        '<div class="chart-wrap"><svg class="activity-chart" id="activity-chart-7" viewBox="0 0 620 210" preserveAspectRatio="none"></svg></div>' +
+        '<span class="dash-trend up" id="dash-trend">—</span>' +
         '</div>' +
         '<div class="dash-widget">' +
-        '<div class="dash-widget-header"><div><h3>Letzte Rechnungen</h3><p>Neueste Transaktionen</p></div>' +
+        '<div class="dash-widget-header"><div class="dash-widget-icon">' + iconHtml('receipt', 16) + '</div>' +
+        '<div><h3>Letzte Rechnungen</h3><p>Neueste Transaktionen</p></div>' +
+        '<span class="spacer"></span>' +
         '<button class="btn-view-all" id="btn-view-all" type="button">Alle anzeigen</button></div>' +
         '<div class="recent-list" id="dash-recent"></div>' +
         '</div></div>';
@@ -465,6 +498,7 @@ function renderDashboardPage() {
     drawActivityChart7(activity);
 
     document.getElementById('btn-view-all').onclick = function() { setActiveTab('received'); };
+    document.getElementById('btn-overview').onclick = function() { setActiveTab('statistics'); };
 
     var listEl = document.getElementById('dash-recent');
     if (recent.length === 0) {
@@ -474,21 +508,29 @@ function renderDashboardPage() {
 
     listEl.innerHTML = recent.map(function(inv) {
         var gross = parseFloat(inv.gross_amount) || 0;
-        var tag = getInvoiceTag(inv, inv._dir);
         var due = daysUntilDue(inv);
         var dueText = '';
         if (inv.payment_status === 'paid') dueText = 'Bezahlt';
-        else if (due !== null) dueText = due >= 0 ? ('Fällig in ' + due + ' Tagen') : ('Überfällig seit ' + Math.abs(due) + ' Tagen');
+        else if (inv.payment_status === 'cancelled') dueText = 'Storniert';
+        else if (inv.payment_status === 'rejected') dueText = 'Abgelehnt';
+        else if (due !== null) dueText = due >= 0 ? ('Fällig in ' + due + ' Tg.') : ('Überfällig ' + Math.abs(due) + ' Tg.');
+
+        var dirCls = inv._dir === 'received' ? 'in' : 'out';
+        var dirIcon = inv._dir === 'received' ? 'inbox' : 'send';
+        var payTag = getInvoiceTag(inv, inv._dir);
 
         return '<div class="recent-invoice" data-id="' + inv.id + '" data-dir="' + inv._dir + '">' +
-            '<div class="recent-invoice-top">' +
-            '<span class="recent-invoice-title">' + esc(inv.invoice_number) + '</span>' +
-            '<span class="recent-invoice-amount">' + formatMoneyShort(gross) + '</span></div>' +
-            '<div class="recent-invoice-desc">' + esc(inv.reason || 'Keine Beschreibung') + '</div>' +
+            '<div class="recent-icon ' + dirCls + '">' + iconHtml(dirIcon, 15) + '</div>' +
+            '<div class="recent-main">' +
+            '<div class="recent-invoice-title">' + esc(inv.reason || inv.invoice_number) + '</div>' +
+            '<div class="recent-invoice-desc">' + esc(inv._dir === 'received' ? ('von ' + (inv.issuer_name || '-')) : ('an ' + (inv.recipient_name || '-'))) + '</div>' +
             '<div class="recent-invoice-meta">' +
-            '<span class="tag ' + tag.cls + '">' + tag.label + '</span>' +
             '<span class="tag ' + (inv._dir === 'received' ? 'tag-received' : 'tag-sent') + '">' +
             (inv._dir === 'received' ? 'Empfangen' : 'Gesendet') + '</span>' +
+            '<span class="tag ' + payTag.cls + '">' + payTag.label + '</span>' +
+            '</div></div>' +
+            '<div class="recent-right">' +
+            '<span class="recent-invoice-amount">' + formatMoneyShort(gross) + '</span>' +
             '<span class="recent-due">' + dueText + '</span></div></div>';
     }).join('');
 
@@ -944,6 +986,92 @@ function renderRecentPayments(payments) {
             '<span class="recent-time">' + formatDate(p.paid_at || p.created_at) + '</span>' +
             '</div><div class="recent-desc">' + desc + '</div></div>';
     }).join('');
+}
+
+// ============================================================
+// BÜRGER-SUCHE (Citizen Lookup)
+// ============================================================
+
+function renderLookup() {
+    var d = state.data || {};
+    document.getElementById('billing-body').innerHTML =
+        '<div class="dash-topbar">' +
+        '<div class="dash-topbar-left"><div class="dash-topbar-icon">' + iconHtml('search', 20) + '</div>' +
+        '<div class="dash-header"><h2>Bürger-Suche</h2><p>Bürger per Identifier finden oder in der Nähe auswählen</p></div></div>' +
+        '</div>' +
+        '<div class="lookup-bar">' +
+        '<div class="search-wrap lookup-search">' + iconHtml('search', 15) +
+        '<input class="search-input" id="lookup-input" type="text" placeholder="Identifier eingeben (z.B. license:abc...)"></div>' +
+        '<button class="btn btn-primary" id="lookup-btn" type="button">Suchen</button>' +
+        '<button class="btn btn-ghost" id="lookup-nearby" type="button">' + iconHtml('users', 14) + ' In der Nähe</button>' +
+        '</div>' +
+        '<div id="lookup-results" class="lookup-results"></div>';
+
+    var resultsEl = document.getElementById('lookup-results');
+
+    function renderResultCard(person) {
+        var canCreate = d.canCreate;
+        return '<div class="lookup-card">' +
+            '<div class="lookup-avatar">' + iconHtml('user', 18) + '</div>' +
+            '<div class="lookup-info">' +
+            '<div class="lookup-name">' + esc(person.name) + '</div>' +
+            '<div class="lookup-id">' + esc(person.identifier) + '</div></div>' +
+            '<span class="lookup-status ' + (person.online ? 'online' : 'offline') + '">' + (person.online ? 'Online' : 'Offline') + '</span>' +
+            '<div class="lookup-actions">' +
+            (canCreate ? '<button class="btn btn-primary btn-sm lk-invoice" data-id="' + esc(person.identifier) + '" type="button">Rechnung</button>' : '') +
+            '<button class="btn btn-ghost btn-sm lk-contact" data-id="' + esc(person.identifier) + '" data-name="' + esc(person.name) + '" type="button">+ Kontakt</button>' +
+            '</div></div>';
+    }
+
+    function bindResultActions() {
+        resultsEl.querySelectorAll('.lk-invoice').forEach(function(btn) {
+            btn.onclick = function() {
+                state.pendingContactId = btn.dataset.id;
+                setActiveTab('create');
+            };
+        });
+        resultsEl.querySelectorAll('.lk-contact').forEach(function(btn) {
+            btn.onclick = function() {
+                nuiFetch('saveContact', { contact_identifier: btn.dataset.id, contact_name: btn.dataset.name });
+                showToast('Kontakt gespeichert', 'success');
+                setTimeout(function() { refreshDashboard(); }, 400);
+            };
+        });
+    }
+
+    document.getElementById('lookup-btn').onclick = function() {
+        var id = document.getElementById('lookup-input').value.trim();
+        if (!id) return;
+        resultsEl.innerHTML = '<div class="empty-state">Suche...</div>';
+        nuiFetch('lookupIdentifier', { identifier: id }).then(function(res) {
+            if (!res) {
+                resultsEl.innerHTML = '<div class="empty-state">Kein Bürger mit diesem Identifier gefunden.</div>';
+                return;
+            }
+            resultsEl.innerHTML = renderResultCard(res);
+            bindResultActions();
+        });
+    };
+
+    document.getElementById('lookup-input').onkeydown = function(e) {
+        if (e.key === 'Enter') document.getElementById('lookup-btn').click();
+    };
+
+    document.getElementById('lookup-nearby').onclick = function() {
+        resultsEl.innerHTML = '<div class="empty-state">Lade Spieler in der Nähe...</div>';
+        nuiFetch('getNearbyPlayers').then(function(players) {
+            if (!players || players.length === 0) {
+                resultsEl.innerHTML = '<div class="empty-state">Keine Spieler in der Nähe.</div>';
+                return;
+            }
+            resultsEl.innerHTML = players.map(function(p) {
+                return renderResultCard({ name: p.name + ' (' + p.distance + 'm)', identifier: p.identifier, online: true });
+            }).join('');
+            bindResultActions();
+        });
+    };
+
+    document.getElementById('lookup-nearby').click();
 }
 
 // ============================================================
