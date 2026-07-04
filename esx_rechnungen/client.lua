@@ -38,6 +38,24 @@ local function CloseMenu()
     SendNUIMessage({ action = 'close' })
 end
 
+--- Öffnet das F7-Hauptmenü (toggle)
+local function OpenHubMenu()
+    if isMenuOpen then
+        CloseMenu()
+        return
+    end
+
+    ESX.TriggerServerCallback('esx_rechnungen:isAdmin', function(isAdmin)
+        ESX.TriggerServerCallback('esx_rechnungen:canCreateInvoice', function(canCreate, createResult)
+            OpenMenu('hub', {
+                isAdmin = isAdmin,
+                canCreate = canCreate,
+                createData = canCreate and createResult or nil
+            })
+        end)
+    end)
+end
+
 -- ============================================================
 -- Benachrichtigungen
 -- ============================================================
@@ -206,6 +224,13 @@ end)
 -- Commands
 -- ============================================================
 
+--- F7-Hauptmenü (auch per Command)
+RegisterCommand(Config.HubCommand, function()
+    OpenHubMenu()
+end, false)
+
+RegisterKeyMapping(Config.HubCommand, Config.KeybindDescription, 'keyboard', Config.Keybind)
+
 RegisterCommand(Config.PlayerCommand, function()
     if isMenuOpen then CloseMenu() return end
     OpenMenu('player')
@@ -240,6 +265,7 @@ end, false)
 -- ============================================================
 
 exports('OpenInvoiceMenu', function() OpenMenu('player') end)
+exports('OpenHubMenu', OpenHubMenu)
 
 exports('OpenAdminPanel', function()
     ESX.TriggerServerCallback('esx_rechnungen:isAdmin', function(isAdmin)

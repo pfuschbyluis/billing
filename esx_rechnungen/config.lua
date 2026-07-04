@@ -21,6 +21,11 @@ Config.AdminGroups = {
 Config.AdminCommand = 'rechnungadmin'
 Config.PlayerCommand = 'rechnungen'
 Config.CreateCommand = 'rechnung'
+Config.HubCommand = 'rechnungsmenu'  -- Hauptmenü-Command (zusätzlich zum Keybind)
+
+-- Keybind: F7 öffnet das Rechnungs-Hauptmenü
+Config.Keybind = 'F7'
+Config.KeybindDescription = 'Rechnungssystem öffnen'
 
 -- Standardwerte beim ersten Start (werden in DB überschrieben)
 Config.DefaultSettings = {

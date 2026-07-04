@@ -34,9 +34,21 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit **eigenem Custom-Menü**
 
 | Command | Beschreibung |
 |---------|-------------|
-| `/rechnungen` | Eigene Rechnungen anzeigen & bezahlen |
-| `/rechnung` | Neue Rechnung ausstellen |
-| `/rechnungadmin` | Adminpanel (nur Admins) |
+| **F7** / `/rechnungsmenu` | **Hauptmenü** mit allen Optionen |
+| `/rechnungen` | Rechnungen direkt anzeigen |
+| `/rechnung` | Rechnung direkt ausstellen |
+| `/rechnungadmin` | Adminpanel direkt öffnen |
+
+### F7-Hauptmenü
+
+Mit **F7** öffnet sich das zentrale Menü:
+
+- Rechnungen einsehen
+- Rechnung ausstellen (wenn berechtigt)
+- Adminpanel (nur für Admins)
+- Schnellzugriff: Offene Rechnungen
+
+F7 erneut drücken schließt das Menü.
 
 ## Custom-Menü
 
@@ -53,11 +65,13 @@ Alle Dialoge (Bestätigen, Eingabe, Hinweise) laufen im Menü – nichts öffnet
 ```lua
 Config.MenuWidth = 420        -- Menübreite in Pixel
 Config.MenuPosition = 'right' -- Position (right)
+Config.Keybind = 'F7'         -- Taste für Hauptmenü
 ```
 
 ## Exports
 
 ```lua
+exports['esx_rechnungen']:OpenHubMenu()       -- F7-Hauptmenü
 exports['esx_rechnungen']:OpenInvoiceMenu()
 exports['esx_rechnungen']:OpenAdminPanel()
 exports['esx_rechnungen']:OpenCreateInvoice()

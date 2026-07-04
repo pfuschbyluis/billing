@@ -14,7 +14,8 @@ var state = {
     jobSettings: {},
     societies: [],
     societyInfo: {},
-    globalSettings: {}
+    globalSettings: {},
+    hubData: null
 };
 
 function getResourceName() {
@@ -121,19 +122,111 @@ function renderList(items) {
 }
 
 // ============================================================
+// HAUPTMENÜ (F7)
+// ============================================================
+
+function renderHubMenu() {
+    var d = state.hubData || {};
+    var items = [
+        {
+            icon: 'list',
+            title: 'Rechnungen einsehen',
+            desc: 'Offene, bezahlte und überfällige Rechnungen',
+            arrow: true,
+            action: 'hub_player'
+        }
+    ];
+
+    if (d.canCreate) {
+        items.push({
+            icon: 'plus',
+            title: 'Rechnung ausstellen',
+            desc: 'Neue Rechnung an Spieler oder Firma',
+            arrow: true,
+            action: 'hub_create'
+        });
+    } else {
+        items.push({
+            icon: 'plus',
+            title: 'Rechnung ausstellen',
+            desc: 'Mit deinem Job nicht verfügbar',
+            readonly: true
+        });
+    }
+
+    if (d.isAdmin) {
+        items.push({
+            icon: 'shield',
+            title: 'Adminpanel',
+            desc: 'Rechnungen, Jobs, Firmen & System',
+            arrow: true,
+            action: 'hub_admin'
+        });
+    }
+
+    items.push({ section: 'Schnellzugriff' });
+    items.push({
+        icon: 'clock',
+        title: 'Offene Rechnungen',
+        desc: 'Direkt zu unbezahlten Rechnungen',
+        arrow: true,
+        action: 'hub_open'
+    });
+
+    renderList(items);
+}
+
+function openHubHome(data) {
+    state.hubData = data || {};
+    state.mode = 'hub';
+    resetNav();
+    document.getElementById('admin-tabs').classList.add('hidden');
+    pushView(renderHubMenu, 'Rechnungssystem', 'F7 · Hauptmenü');
+}
+
+window._action_hub_player = function() { openPlayerHome(true); };
+window._action_hub_create = function() {
+    if (!state.hubData.canCreate || !state.hubData.createData) {
+        showToast('Du darfst keine Rechnungen ausstellen.', 'warning');
+        return;
+    }
+    openCreateHome(state.hubData.createData, true);
+};
+window._action_hub_admin = function() {
+    state.mode = 'admin';
+    state.adminTab = 'invoices';
+    document.getElementById('admin-tabs').classList.remove('hidden');
+    document.querySelectorAll('.tab').forEach(function(t) {
+        t.classList.toggle('active', t.dataset.tab === 'invoices');
+    });
+    pushView(function() { renderAdminTab(); }, 'Adminpanel', 'Verwaltung');
+};
+window._action_hub_open = function() {
+    state.filter = 'open';
+    openPlayerList(true);
+};
+
+// ============================================================
 // SPIELER
 // ============================================================
 
-function openPlayerHome() {
-    resetNav();
-    pushView(function() {
+function openPlayerHome(fromHub) {
+    var renderCats = function() {
         renderList([
             { icon: 'list', title: 'Alle Rechnungen', desc: 'Komplette Übersicht', arrow: true, action: 'p_all' },
             { icon: 'clock', title: 'Offene Rechnungen', iconClass: 'warning', arrow: true, action: 'p_open' },
             { icon: 'check-circle', title: 'Bezahlte Rechnungen', iconClass: 'success', arrow: true, action: 'p_paid' },
             { icon: 'alert-circle', title: 'Überfällige Rechnungen', iconClass: 'danger', arrow: true, action: 'p_overdue' }
         ]);
-    }, 'Meine Rechnungen', 'Übersicht & Bezahlung');
+    };
+
+    if (fromHub) {
+        pushView(renderCats, 'Meine Rechnungen', 'Übersicht & Bezahlung');
+    } else {
+        resetNav();
+        state.mode = 'player';
+        pushView(renderCats, 'Meine Rechnungen', 'Übersicht & Bezahlung');
+    }
 }
 
 window._action_p_all = function() { state.filter = 'all'; openPlayerList(); };
@@ -141,14 +234,14 @@ window._action_p_open = function() { state.filter = 'open'; openPlayerList(); };
 window._action_p_paid = function() { state.filter = 'paid'; openPlayerList(); };
 window._action_p_overdue = function() { state.filter = 'overdue'; openPlayerList(); };
 
-function openPlayerList() {
+function openPlayerList(fromHub) {
     nuiFetch('getMyInvoices').then(function(invoices) {
         state.invoices = invoices || [];
         var filtered = state.invoices.filter(function(inv) {
             return state.filter === 'all' || inv.payment_status === state.filter;
         });
 
-        pushView(function() {
+        var renderListView = function() {
             var items = [];
             if (filtered.length === 0) {
                 items.push({ icon: 'inbox', title: 'Keine Rechnungen', desc: 'In dieser Kategorie leer', readonly: true });
@@ -170,7 +263,13 @@ function openPlayerList() {
                 });
             }
             renderList(items);
-        }, 'Rechnungsliste', filtered.length + ' Einträge');
+        };
+
+        if (fromHub) {
+            pushView(renderListView, 'Rechnungsliste', filtered.length + ' Einträge');
+        } else {
+            pushView(renderListView, 'Rechnungsliste', filtered.length + ' Einträge');
+        }
     });
 }
 
@@ -212,17 +311,25 @@ function row(label, val, total) {
 // RECHNUNG ERSTELLEN
 // ============================================================
 
-function openCreateHome(data) {
+function openCreateHome(data, fromHub) {
     state.createData = data;
-    resetNav();
-    pushView(function() {
+
+    var renderRecipient = function() {
         var items = [];
         var s = data.settings || {};
         if (s.can_issue_player !== 0) items.push({ icon: 'user', title: 'An Spieler', desc: 'Rechnung an nahen Spieler', arrow: true, action: 'c_player' });
         if (s.can_issue_society === 1) items.push({ icon: 'building', title: 'An Firma', desc: 'Rechnung an Society', arrow: true, action: 'c_society' });
         if (items.length === 0) items.push({ icon: 'x', title: 'Keine Berechtigung', readonly: true });
         renderList(items);
-    }, 'Rechnung ausstellen', data.job ? data.job.label : '');
+    };
+
+    if (fromHub) {
+        pushView(renderRecipient, 'Rechnung ausstellen', data.job ? data.job.label : '');
+    } else {
+        resetNav();
+        state.mode = 'create';
+        pushView(renderRecipient, 'Rechnung ausstellen', data.job ? data.job.label : '');
+    }
 }
 
 window._action_c_player = function() {
@@ -608,9 +715,10 @@ window.addEventListener('message', function(e) {
         setIcon(document.getElementById('btn-back'), 'chevron-left', 16);
         requestAnimationFrame(function() { root.classList.add('open'); });
 
-        if (d.mode === 'player') openPlayerHome();
-        else if (d.mode === 'create') openCreateHome(d.data);
-        else if (d.mode === 'admin') openAdminHome();
+        if (d.mode === 'player') { state.mode = 'player'; openPlayerHome(); }
+        else if (d.mode === 'create') { state.mode = 'create'; openCreateHome(d.data); }
+        else if (d.mode === 'admin') { state.mode = 'admin'; openAdminHome(); }
+        else if (d.mode === 'hub') { openHubHome(d.data); }
     } else if (d.action === 'close') {
         document.getElementById('menu-root').classList.remove('open');
         setTimeout(function() { document.getElementById('menu-root').classList.add('hidden'); }, 280);
@@ -621,9 +729,16 @@ window.addEventListener('message', function(e) {
 
 document.getElementById('btn-close').onclick = closeMenu;
 document.getElementById('btn-back').onclick = function() {
-    if (state.mode === 'admin' && state.navStack.length <= 1) {
-        document.getElementById('admin-tabs').classList.remove('hidden');
+    if (state.navStack.length <= 1) {
+        closeMenu();
+        return;
     }
+
+    if (state.mode === 'admin' && state.navStack.length === 2 && state.hubData) {
+        document.getElementById('admin-tabs').classList.add('hidden');
+        state.mode = 'hub';
+    }
+
     goBack();
 };
 
@@ -631,8 +746,17 @@ document.querySelectorAll('.tab').forEach(function(tab) {
     tab.addEventListener('click', function() {
         state.adminTab = tab.dataset.tab;
         document.querySelectorAll('.tab').forEach(function(t) { t.classList.toggle('active', t === tab); });
-        resetNav();
-        renderAdminTab();
+
+        if (state.hubData && state.navStack.length > 1) {
+            state.navStack = state.navStack.slice(0, 2);
+            setHeader('Adminpanel', { invoices: 'Rechnungen', jobs: 'Jobs', societies: 'Firmen', settings: 'System' }[state.adminTab], true);
+            renderAdminTab();
+        } else {
+            resetNav();
+            state.mode = 'admin';
+            document.getElementById('admin-tabs').classList.remove('hidden');
+            renderAdminTab();
+        }
     });
 });
 
