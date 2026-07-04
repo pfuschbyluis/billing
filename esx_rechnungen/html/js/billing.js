@@ -3,8 +3,8 @@
  */
 
 var state = {
-    tab: 'overview',
-    subTab: 'created',
+    tab: 'dashboard',
+    subTab: 'received',
     filter: 'all',
     search: '',
     data: null,
@@ -99,6 +99,8 @@ function applyTheme(ui) {
     if (ui.logo) {
         var logo = document.querySelector('.billing-logo');
         if (logo) logo.textContent = ui.logo;
+        var avatar = document.getElementById('sidebar-avatar');
+        if (avatar && avatar.textContent.length <= 2) avatar.textContent = String(ui.logo).slice(0, 2).toUpperCase();
     }
 }
 
@@ -112,43 +114,73 @@ function chk(id, label, checked) {
     return '<label class="check-row"><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + '>' + label + '</label>';
 }
 
+function updateSidebarAvatar(name) {
+    var avatar = document.getElementById('sidebar-avatar');
+    if (!avatar) return;
+    var parts = String(name || 'Spieler').trim().split(/\s+/).filter(Boolean);
+    var initials = parts.length >= 2
+        ? (parts[0][0] + parts[parts.length - 1][0])
+        : (parts[0] ? parts[0].slice(0, 2) : 'R');
+    avatar.textContent = initials.toUpperCase();
+}
+
+function afterDashboardRefresh() {
+    updateSidebarBadges();
+    renderCurrentTab();
+}
+
 function refreshDashboard(cb) {
     nuiFetch('getDashboardData').then(function(data) {
         if (data && data.playerName) {
             state.data = data;
             document.getElementById('billing-player-name').textContent = data.playerName;
+            updateSidebarAvatar(data.playerName);
             updateTabsVisibility();
             if (cb) cb();
+            else afterDashboardRefresh();
         }
+    });
+}
+
+function updateSidebarBadges() {
+    var d = state.data || {};
+    var stats = d.stats || {};
+    var badge = document.getElementById('badge-received');
+    if (badge) {
+        var count = stats.open || 0;
+        badge.textContent = count;
+        badge.classList.toggle('hidden', count <= 0);
+    }
+}
+
+function initSidebarIcons() {
+    document.querySelectorAll('.sidebar-icon[data-icon]').forEach(function(el) {
+        setIcon(el, el.getAttribute('data-icon'), 16);
     });
 }
 
 function updateTabsVisibility() {
     var d = state.data || {};
-    var adminBtn = document.getElementById('btn-admin');
-    var createTab = document.querySelector('.billing-tab[data-tab="create"]');
-    if (adminBtn) {
-        adminBtn.classList.toggle('hidden', !d.isAdmin);
-        setIcon(adminBtn, 'shield', 16);
+    var adminNav = document.getElementById('nav-admin');
+    var createNav = document.getElementById('nav-create');
+    if (adminNav) adminNav.classList.toggle('hidden', !d.isAdmin);
+    if (createNav) {
+        createNav.classList.toggle('disabled', !d.canCreate);
+        createNav.title = d.canCreate ? '' : 'Mit deinem Job nicht verfügbar';
     }
-    if (createTab) {
-        createTab.classList.toggle('disabled', !d.canCreate);
-        createTab.title = d.canCreate ? '' : 'Mit deinem Job nicht verfügbar';
-    }
+    updateSidebarBadges();
 }
 
 function setActiveTab(tab) {
     state.tab = tab;
     var panel = document.getElementById('billing-panel');
-    var header = document.querySelector('.billing-header');
-    var tabs = document.getElementById('billing-tabs');
+    var sidebar = document.getElementById('billing-sidebar');
     var isCreate = tab === 'create' && state.data && state.data.canCreate;
 
     if (panel) panel.classList.toggle('invoice-create-mode', isCreate);
-    if (header) header.classList.toggle('hidden', isCreate);
-    if (tabs) tabs.classList.toggle('hidden', isCreate);
+    if (sidebar) sidebar.classList.toggle('hidden', isCreate);
 
-    document.querySelectorAll('.billing-tab').forEach(function(t) {
+    document.querySelectorAll('.sidebar-item').forEach(function(t) {
         t.classList.toggle('active', t.dataset.tab === tab);
     });
     renderCurrentTab();
@@ -156,19 +188,12 @@ function setActiveTab(tab) {
 
 function openAdminPanel() {
     if (!(state.data && state.data.isAdmin)) return;
-    state.tab = 'admin';
-    var panel = document.getElementById('billing-panel');
-    var header = document.querySelector('.billing-header');
-    var tabs = document.getElementById('billing-tabs');
-    if (panel) panel.classList.remove('invoice-create-mode');
-    if (header) header.classList.remove('hidden');
-    if (tabs) tabs.classList.remove('hidden');
-    document.querySelectorAll('.billing-tab').forEach(function(t) { t.classList.remove('active'); });
-    renderAdmin();
+    setActiveTab('admin');
 }
 
 function renderCurrentTab() {
-    if (state.tab === 'overview') renderOverview();
+    if (state.tab === 'dashboard') renderDashboardPage();
+    else if (state.tab === 'received' || state.tab === 'sent') renderInvoiceListPage(state.tab);
     else if (state.tab === 'statistics') renderStatistics();
     else if (state.tab === 'templates') renderTemplates();
     else if (state.tab === 'create') renderCreate();
@@ -176,41 +201,244 @@ function renderCurrentTab() {
 }
 
 // ============================================================
-// ÜBERSICHT
+// DASHBOARD HOME
 // ============================================================
 
-function renderOverview() {
+function getMergedInvoices() {
+    var d = state.data || {};
+    var all = [];
+    (d.received || []).forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'received' })); });
+    (d.created || []).forEach(function(i) { all.push(Object.assign({}, i, { _dir: 'sent' })); });
+    all.sort(function(a, b) {
+        return String(b.created_at || '') > String(a.created_at || '') ? 1 : -1;
+    });
+    return all;
+}
+
+function build7DayActivity() {
+    var d = state.data || {};
+    var dayNames = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+    var labels = [];
+    var earned = [];
+    var spent = [];
+
+    for (var i = 6; i >= 0; i--) {
+        var dt = new Date();
+        dt.setHours(0, 0, 0, 0);
+        dt.setDate(dt.getDate() - i);
+        var dayStr = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+        labels.push({ name: dayNames[dt.getDay()], _key: dayStr });
+        earned.push(0);
+        spent.push(0);
+    }
+
+    function dayIndex(dayKey) {
+        for (var j = 0; j < labels.length; j++) {
+            if (labels[j]._key === dayKey) return j;
+        }
+        return -1;
+    }
+
+    (d.created || []).forEach(function(inv) {
+        var gross = parseFloat(inv.gross_amount) || 0;
+        var dayKey = String(inv.created_at || '').slice(0, 10);
+        var idx = dayIndex(dayKey);
+        if (idx >= 0) earned[idx] += gross;
+    });
+
+    (d.received || []).forEach(function(inv) {
+        var gross = parseFloat(inv.gross_amount) || 0;
+        var dayKey = inv.payment_status === 'paid'
+            ? String(inv.paid_at || inv.updated_at || inv.created_at || '').slice(0, 10)
+            : String(inv.created_at || '').slice(0, 10);
+        var idx = dayIndex(dayKey);
+        if (idx >= 0) spent[idx] += gross;
+    });
+
+    return {
+        labels: labels.map(function(l) { return l.name; }),
+        earned: earned,
+        spent: spent
+    };
+}
+
+function daysUntilDue(inv) {
+    if (!inv.due_date) return null;
+    var due = new Date(String(inv.due_date).slice(0, 10));
+    var now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.ceil((due - now) / 86400000);
+}
+
+function getInvoiceTag(inv, dir) {
+    if (inv.payment_status === 'paid') return { cls: 'tag-paid', label: 'Bezahlt' };
+    if (inv.payment_status === 'open' || inv.payment_status === 'overdue') {
+        return dir === 'received'
+            ? { cls: 'tag-pending', label: 'Ausstehend' }
+            : { cls: 'tag-sent', label: 'Gesendet' };
+    }
+    if (dir === 'received') return { cls: 'tag-received', label: 'Empfangen' };
+    return { cls: 'tag-sent', label: 'Gesendet' };
+}
+
+function drawActivityChart7(data) {
+    var svg = document.getElementById('activity-chart-7');
+    if (!svg) return;
+
+    var labels = data.labels || [];
+    var earned = data.earned || [];
+    var spent = data.spent || [];
+    var net = earned.map(function(e, i) { return e - (spent[i] || 0); });
+    var w = 600, h = 200, pad = { t: 24, r: 16, b: 28, l: 16 };
+    var max = Math.max.apply(null, net.concat([1]));
+    var min = Math.min.apply(null, net.concat([0]));
+    var range = Math.max(max - min, 1);
+    var step = labels.length > 1 ? (w - pad.l - pad.r) / (labels.length - 1) : 0;
+    var zeroY = pad.t + (h - pad.t - pad.b) * (max / range);
+
+    var points = [];
+    for (var i = 0; i < net.length; i++) {
+        var x = pad.l + step * i;
+        var y = pad.t + (h - pad.t - pad.b) * (1 - (net[i] - min) / range);
+        points.push({ x: x, y: y, val: net[i] });
+    }
+
+    var path = points.length ? 'M' + points.map(function(p) { return p.x + ',' + p.y; }).join(' L') : '';
+    var area = path;
+    if (points.length) {
+        area += ' L' + points[points.length - 1].x + ',' + zeroY;
+        area += ' L' + points[0].x + ',' + zeroY + ' Z';
+    }
+
+    var dots = points.map(function(p) {
+        var col = p.val >= 0 ? '#3dd68c' : '#f06565';
+        return '<circle cx="' + p.x + '" cy="' + p.y + '" r="4" fill="' + col + '"/>';
+    }).join('');
+
+    var xLabels = labels.map(function(lbl, i) {
+        return '<text x="' + (pad.l + step * i) + '" y="' + (h - 6) + '" fill="#6b6578" font-size="11" text-anchor="middle">' + lbl + '</text>';
+    }).join('');
+
+    var trend = 0;
+    if (net.length >= 2) {
+        var prev = net.slice(0, -1).reduce(function(a, b) { return a + b; }, 0);
+        var curr = net.reduce(function(a, b) { return a + b; }, 0);
+        trend = prev > 0 ? ((curr - prev) / prev) * 100 : (curr > 0 ? 100 : 0);
+    }
+
+    var trendEl = document.getElementById('dash-trend');
+    if (trendEl) {
+        trendEl.textContent = (trend >= 0 ? '+' : '') + trend.toFixed(1) + '% vs. letzte 7 Tage';
+        trendEl.className = 'dash-trend ' + (trend >= 0 ? 'up' : 'down');
+    }
+
+    var segments = '';
+    for (var s = 1; s < points.length; s++) {
+        var prev = points[s - 1];
+        var curr = points[s];
+        var col = curr.val >= prev.val ? '#3dd68c' : '#f06565';
+        segments += '<line x1="' + prev.x + '" y1="' + prev.y + '" x2="' + curr.x + '" y2="' + curr.y + '" stroke="' + col + '" stroke-width="2.5" stroke-linecap="round"/>';
+    }
+
+    svg.innerHTML =
+        '<line x1="' + pad.l + '" y1="' + zeroY + '" x2="' + (w - pad.r) + '" y2="' + zeroY + '" stroke="rgba(255,255,255,0.08)" stroke-width="1"/>' +
+        (area ? '<path d="' + area + '" fill="rgba(125,82,255,0.12)"/>' : '') +
+        segments +
+        dots + xLabels;
+}
+
+function renderDashboardPage() {
     var d = state.data || {};
     var stats = d.stats || {};
-    var html = '<div class="stats-grid">' +
-        statCard('GESAMT RECHNUNGEN', stats.total || 0) +
-        statCard('OFFENE RECHNUNGEN', stats.open || 0) +
-        statCard('OFFENER BETRAG', formatMoneyShort(stats.open_amount || 0)) +
-        statCard('HEUTE', (stats.today_count || 0) + ' (' + formatMoneyShort(stats.today_amount || 0) + ')') +
-        '</div>';
+    var activity = build7DayActivity();
+    var recent = getMergedInvoices().slice(0, 6);
 
-    html += '<div class="list-toolbar">' +
-        '<div class="sub-tabs">' +
-        '<button class="sub-tab' + (state.subTab === 'created' ? ' active' : '') + '" data-sub="created" type="button">ERSTELLT</button>' +
-        '<button class="sub-tab' + (state.subTab === 'received' ? ' active' : '') + '" data-sub="received" type="button">EMPFANGEN</button>' +
+    document.getElementById('billing-body').innerHTML =
+        '<div class="dash-header">' +
+        '<h2>Dashboard</h2>' +
+        '<p>Behalte alle deine Rechnungen an einem Ort im Blick – ob gesendet oder empfangen. ' +
+        'Das Diagramm zeigt deine Zahlungen und Einnahmen der letzten 7 Tage.</p>' +
         '</div>' +
-        '<div class="list-filters">' +
+        '<div class="dash-summary">' +
+        '<div class="dash-summary-card"><div class="label">Gesamtvolumen</div><div class="value accent">' + formatMoneyShort(stats.total_amount || 0) + '</div></div>' +
+        '<div class="dash-summary-card"><div class="label">Offene Rechnungen</div><div class="value">' + (stats.open || 0) + '</div>' +
+        (stats.open_amount ? '<div class="dash-summary-sub">' + formatMoneyShort(stats.open_amount) + ' ausstehend</div>' : '') +
+        '</div>' +
+        '</div>' +
+        '<div class="dash-grid">' +
+        '<div class="dash-widget">' +
+        '<div class="dash-widget-header"><div><h3>Rechnungsaktivität</h3><p>Finanzfluss der letzten 7 Tage</p></div>' +
+        '<span class="dash-trend up" id="dash-trend">—</span></div>' +
+        '<svg class="activity-chart" id="activity-chart-7" viewBox="0 0 600 200" preserveAspectRatio="xMidYMid meet"></svg>' +
+        '</div>' +
+        '<div class="dash-widget">' +
+        '<div class="dash-widget-header"><div><h3>Letzte Rechnungen</h3><p>Neueste Transaktionen</p></div>' +
+        '<button class="btn-view-all" id="btn-view-all" type="button">Alle anzeigen</button></div>' +
+        '<div class="recent-list" id="dash-recent"></div>' +
+        '</div></div>';
+
+    drawActivityChart7(activity);
+
+    document.getElementById('btn-view-all').onclick = function() { setActiveTab('received'); };
+
+    var listEl = document.getElementById('dash-recent');
+    if (recent.length === 0) {
+        listEl.innerHTML = '<div class="empty-state" style="padding:24px">Noch keine Rechnungen</div>';
+        return;
+    }
+
+    listEl.innerHTML = recent.map(function(inv) {
+        var gross = parseFloat(inv.gross_amount) || 0;
+        var tag = getInvoiceTag(inv, inv._dir);
+        var due = daysUntilDue(inv);
+        var dueText = '';
+        if (inv.payment_status === 'paid') dueText = 'Bezahlt';
+        else if (due !== null) dueText = due >= 0 ? ('Fällig in ' + due + ' Tagen') : ('Überfällig seit ' + Math.abs(due) + ' Tagen');
+
+        return '<div class="recent-invoice" data-id="' + inv.id + '" data-dir="' + inv._dir + '">' +
+            '<div class="recent-invoice-top">' +
+            '<span class="recent-invoice-title">' + esc(inv.invoice_number) + '</span>' +
+            '<span class="recent-invoice-amount">' + formatMoneyShort(gross) + '</span></div>' +
+            '<div class="recent-invoice-desc">' + esc(inv.reason || 'Keine Beschreibung') + '</div>' +
+            '<div class="recent-invoice-meta">' +
+            '<span class="tag ' + tag.cls + '">' + tag.label + '</span>' +
+            '<span class="tag ' + (inv._dir === 'received' ? 'tag-received' : 'tag-sent') + '">' +
+            (inv._dir === 'received' ? 'Empfangen' : 'Gesendet') + '</span>' +
+            '<span class="recent-due">' + dueText + '</span></div></div>';
+    }).join('');
+
+    listEl.querySelectorAll('.recent-invoice').forEach(function(el) {
+        el.onclick = function() {
+            var id = parseInt(el.dataset.id);
+            var dir = el.dataset.dir;
+            var pool = dir === 'received' ? (d.received || []) : (d.created || []);
+            var inv = pool.find(function(i) { return i.id === id; });
+            if (inv) openDetailModal(inv, dir === 'received');
+        };
+    });
+}
+
+// ============================================================
+// RECHNUNGSLISTE (Empfangen / Gesendet)
+// ============================================================
+
+function renderInvoiceListPage(tab) {
+    state.subTab = tab === 'sent' ? 'created' : 'received';
+    var title = tab === 'sent' ? 'Gesendete Rechnungen' : 'Empfangene Rechnungen';
+    var subtitle = tab === 'sent' ? 'Von dir ausgestellte Rechnungen' : 'An dich gerichtete Rechnungen';
+
+    document.getElementById('billing-body').innerHTML =
+        '<div class="page-header"><div><h2>' + title + '</h2><p style="font-size:12px;color:var(--text-muted);margin-top:4px">' + subtitle + '</p></div></div>' +
+        '<div class="list-toolbar">' +
+        '<div class="list-filters" style="margin-left:auto">' +
         '<select class="filter-select" id="invoice-filter">' +
-        '<option value="all">Alle</option>' +
-        '<option value="open">Offen</option>' +
-        '<option value="paid">Bezahlt</option>' +
-        '<option value="overdue">Überfällig</option>' +
-        '<option value="cancelled">Storniert</option>' +
-        '<option value="rejected">Abgelehnt</option>' +
+        '<option value="all">Alle</option><option value="open">Offen</option><option value="paid">Bezahlt</option>' +
+        '<option value="overdue">Überfällig</option><option value="cancelled">Storniert</option><option value="rejected">Abgelehnt</option>' +
         '</select>' +
-        '<div class="search-wrap">' +
-        iconHtml('search', 14) +
-        '<input class="search-input" id="invoice-search" type="text" placeholder="Suchen..." value="' + esc(state.search) + '">' +
-        '</div></div></div>';
-
-    html += '<div class="invoice-list" id="invoice-list"></div>';
-
-    document.getElementById('billing-body').innerHTML = html;
+        '<div class="search-wrap">' + iconHtml('search', 14) +
+        '<input class="search-input" id="invoice-search" type="text" placeholder="Suchen..." value="' + esc(state.search) + '"></div>' +
+        '</div></div>' +
+        '<div class="invoice-list" id="invoice-list"></div>';
 
     document.getElementById('invoice-filter').value = state.filter;
     document.getElementById('invoice-filter').onchange = function() {
@@ -221,17 +449,6 @@ function renderOverview() {
         state.search = this.value.toLowerCase();
         renderInvoiceList();
     };
-
-    document.querySelectorAll('.sub-tab').forEach(function(btn) {
-        btn.onclick = function() {
-            state.subTab = btn.dataset.sub;
-            document.querySelectorAll('.sub-tab').forEach(function(b) {
-                b.classList.toggle('active', b === btn);
-            });
-            renderInvoiceList();
-        };
-    });
-
     renderInvoiceList();
 }
 
@@ -305,7 +522,7 @@ function renderInvoiceList() {
                 if (!ok) return;
                 nuiFetch('deleteInvoice', { invoiceId: id });
                 showToast('Gelöscht', 'success');
-                refreshDashboard(renderOverview);
+                refreshDashboard(afterDashboardRefresh);
             });
         };
     });
@@ -381,13 +598,13 @@ function openDetailModal(inv, canPay) {
             nuiFetch('payInvoice', { invoiceId: inv.id, paymentMethod: 'bank' });
             showToast('Zahlung wird verarbeitet...', 'info');
             closeDetailModal();
-            setTimeout(function() { refreshDashboard(renderOverview); }, 800);
+            setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 800);
         };
         document.getElementById('pay-cash').onclick = function() {
             nuiFetch('payInvoice', { invoiceId: inv.id, paymentMethod: 'cash' });
             showToast('Zahlung wird verarbeitet...', 'info');
             closeDetailModal();
-            setTimeout(function() { refreshDashboard(renderOverview); }, 800);
+            setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 800);
         };
         var rejectBtn = document.getElementById('pay-reject');
         if (rejectBtn) rejectBtn.onclick = function() {
@@ -396,7 +613,7 @@ function openDetailModal(inv, canPay) {
                 nuiFetch('rejectInvoice', { invoiceId: inv.id, reason: reason.trim() });
                 showToast('Rechnung abgelehnt', 'success');
                 closeDetailModal();
-                setTimeout(function() { refreshDashboard(renderOverview); }, 600);
+                setTimeout(function() { refreshDashboard(afterDashboardRefresh); }, 600);
             });
         };
     }
@@ -637,8 +854,8 @@ function renderCreate() {
     var d = state.data || {};
     if (!d.canCreate || !d.createData) {
         document.getElementById('billing-panel').classList.remove('invoice-create-mode');
-        document.querySelector('.billing-header').classList.remove('hidden');
-        document.getElementById('billing-tabs').classList.remove('hidden');
+        var sidebar = document.getElementById('billing-sidebar');
+        if (sidebar) sidebar.classList.remove('hidden');
         document.getElementById('billing-body').innerHTML =
             '<div class="empty-state"><div class="icon-wrap">' + iconHtml('x', 40) + '</div>' +
             'Du darfst mit deinem aktuellen Job keine Rechnungen ausstellen.<br>Bitte wende dich an einen Administrator.</div>';
@@ -703,7 +920,7 @@ function renderCreate() {
 
     document.getElementById('invoice-esc').onclick = closeMenu;
     document.getElementById('inv-cancel').onclick = function() {
-        setActiveTab('overview');
+        setActiveTab('dashboard');
     };
 
     document.getElementById('inv-issuer').onchange = function() {
@@ -978,8 +1195,7 @@ function submitInvoiceForm(createData, settings, taxRate) {
     setTimeout(function() {
         state.signatureDirty = false;
         refreshDashboard(function() {
-            setActiveTab('overview');
-            state.subTab = 'created';
+            setActiveTab('sent');
         });
     }, 600);
 }
@@ -1369,15 +1585,18 @@ function openSettingsForm(type) {
 
 function openDashboard(data) {
     state.data = data || {};
-    state.tab = data.tab || 'overview';
-    state.subTab = data.subTab || 'created';
+    var tab = data.tab || 'dashboard';
+    if (tab === 'overview') tab = 'dashboard';
+    state.tab = tab;
+    state.subTab = data.subTab || 'received';
     state.filter = 'all';
     state.search = '';
     state.signatureDirty = false;
     state.adminTab = 'invoices';
 
     document.getElementById('billing-player-name').textContent = state.data.playerName || 'Spieler';
-    setIcon(document.getElementById('swap-icon'), 'repeat', 14);
+    updateSidebarAvatar(state.data.playerName);
+    initSidebarIcons();
     applyTheme(state.data.ui || (state.data.config && state.data.config.ui));
     updateTabsVisibility();
 
@@ -1407,11 +1626,14 @@ window.addEventListener('message', function(e) {
 
 document.getElementById('btn-close').onclick = closeMenu;
 document.getElementById('detail-close').onclick = closeDetailModal;
-document.getElementById('btn-admin').onclick = openAdminPanel;
 
-document.querySelectorAll('.billing-tab').forEach(function(tab) {
+document.querySelectorAll('.sidebar-item').forEach(function(tab) {
     tab.addEventListener('click', function() {
         if (tab.classList.contains('disabled')) {
+            showToast('Du darfst keine Rechnungen ausstellen.', 'warning');
+            return;
+        }
+        if (tab.dataset.tab === 'create' && !(state.data && state.data.canCreate)) {
             showToast('Du darfst keine Rechnungen ausstellen.', 'warning');
             return;
         }

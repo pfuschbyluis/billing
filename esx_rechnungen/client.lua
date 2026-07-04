@@ -96,7 +96,7 @@ local function OpenDashboard()
 
     ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
         if not data then return end
-        data.tab = 'overview'
+        data.tab = 'dashboard'
         OpenMenu('dashboard', data)
     end)
 end
@@ -111,7 +111,7 @@ local function OpenDashboardTab(tab, subTab)
 
     ESX.TriggerServerCallback('esx_rechnungen:getDashboardData', function(data)
         if not data then return end
-        data.tab = tab or 'overview'
+        data.tab = tab or 'dashboard'
         data.subTab = subTab
         OpenMenu('dashboard', data)
     end)
@@ -297,7 +297,7 @@ end, false)
 RegisterKeyMapping(Config.HubCommand, Config.KeybindDescription, 'keyboard', Config.Keybind)
 
 RegisterCommand(Config.PlayerCommand, function()
-    OpenDashboardTab('overview', 'received')
+    OpenDashboardTab('received', 'received')
 end, false)
 
 RegisterCommand(Config.CreateCommand, function()
@@ -386,7 +386,7 @@ end)
 -- Exports
 -- ============================================================
 
-exports('OpenInvoiceMenu', function() OpenDashboardTab('overview', 'received') end)
+exports('OpenInvoiceMenu', function() OpenDashboardTab('received', 'received') end)
 exports('OpenDashboard', OpenDashboard)
 exports('OpenHubMenu', OpenDashboard)
 

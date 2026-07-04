@@ -10,31 +10,58 @@
 <body>
     <div id="billing-root" class="hidden">
         <div class="billing-panel" id="billing-panel">
-            <header class="billing-header">
-                <div class="billing-brand">
-                    <div class="billing-logo">R</div>
-                    <h1>RECHNUNGEN</h1>
-                    <div class="billing-player-inline">
-                        <span id="billing-player-name">Spieler</span>
-                        <span class="swap-icon" id="swap-icon"></span>
+            <aside class="billing-sidebar" id="billing-sidebar">
+                <div class="sidebar-profile">
+                    <div class="sidebar-avatar" id="sidebar-avatar">R</div>
+                    <div class="sidebar-profile-text">
+                        <div class="sidebar-name" id="billing-player-name">Spieler</div>
+                        <div class="sidebar-account">
+                            <span class="online-dot"></span>
+                            Persönliches Konto
+                        </div>
                     </div>
                 </div>
-                <div class="billing-header-actions">
-                    <button class="btn-header-icon hidden" id="btn-admin" type="button" title="Admin"></button>
-                    <button class="billing-esc" id="btn-close" type="button">
-                        <span class="esc-key">ESC</span>
+
+                <nav class="sidebar-nav" id="sidebar-nav">
+                    <button class="sidebar-item active" data-tab="dashboard" type="button">
+                        <span class="sidebar-icon" data-icon="list"></span>
+                        Dashboard
                     </button>
+                    <button class="sidebar-item" data-tab="received" type="button">
+                        <span class="sidebar-icon" data-icon="inbox"></span>
+                        Empfangen
+                        <span class="nav-badge hidden" id="badge-received">0</span>
+                    </button>
+                    <button class="sidebar-item" data-tab="sent" type="button">
+                        <span class="sidebar-icon" data-icon="receipt"></span>
+                        Gesendet
+                    </button>
+                    <button class="sidebar-item" data-tab="statistics" type="button">
+                        <span class="sidebar-icon" data-icon="hash"></span>
+                        Statistik
+                    </button>
+                    <button class="sidebar-item" data-tab="templates" type="button">
+                        <span class="sidebar-icon" data-icon="file-text"></span>
+                        Vorlagen
+                    </button>
+                    <button class="sidebar-item" data-tab="create" type="button" id="nav-create">
+                        <span class="sidebar-icon" data-icon="plus"></span>
+                        Rechnung erstellen
+                    </button>
+                    <button class="sidebar-item hidden" data-tab="admin" type="button" id="nav-admin">
+                        <span class="sidebar-icon" data-icon="shield"></span>
+                        Admin
+                    </button>
+                </nav>
+
+                <div class="sidebar-footer">
+                    <button class="sidebar-esc" id="btn-close" type="button">ESC · Schließen</button>
                 </div>
-            </header>
+            </aside>
 
-            <nav class="billing-tabs" id="billing-tabs">
-                <button class="billing-tab active" data-tab="overview" type="button">ÜBERSICHT</button>
-                <button class="billing-tab" data-tab="statistics" type="button">STATISTIK</button>
-                <button class="billing-tab" data-tab="templates" type="button">VORLAGEN</button>
-                <button class="billing-tab" data-tab="create" type="button">RECHNUNG ERSTELLEN</button>
-            </nav>
-
-            <div class="billing-body" id="billing-body"></div>
+            <main class="billing-main" id="billing-main">
+                <div class="billing-body" id="billing-body"></div>
+            </main>
         </div>
     </div>
 
