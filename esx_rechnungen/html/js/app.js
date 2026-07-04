@@ -78,6 +78,16 @@ window.addEventListener('message', (event) => {
         openApp(mode, data);
     } else if (action === 'close') {
         document.getElementById('app').classList.add('hidden');
+    } else if (action === 'escape') {
+        if (isDialogOpen()) {
+            closeDialog(null);
+        } else if (!document.getElementById('modal-invoice').classList.contains('hidden')) {
+            closeModal();
+        } else if (!document.getElementById('modal-edit').classList.contains('hidden')) {
+            closeEditModal();
+        } else {
+            closeUI();
+        }
     }
 });
 
@@ -305,13 +315,13 @@ async function submitCreateInvoice(e) {
     if (recipientType === 'player') {
         data.target_id = parseInt(document.getElementById('create-target-id').value);
         if (!data.target_id) {
-            alert('Bitte wähle einen Spieler aus.');
+            showToast('Bitte wähle einen Spieler aus.', 'warning');
             return;
         }
     } else {
         data.society_name = document.getElementById('create-society-name').value;
         if (!data.society_name) {
-            alert('Bitte wähle eine Firma aus.');
+            showToast('Bitte wähle eine Firma aus.', 'warning');
             return;
         }
     }
@@ -562,19 +572,29 @@ async function submitEditInvoice(e) {
 }
 
 async function cancelInvoice(invoiceId) {
-    const reason = prompt('Stornierungsgrund (optional):');
+    const reason = await showPrompt('Stornierungsgrund (optional):', '', {
+        title: 'Rechnung stornieren',
+        placeholder: 'Grund eingeben...'
+    });
     if (reason === null) return;
 
     await nuiFetch('cancelInvoice', { invoiceId, reason });
     closeModal();
+    showToast('Rechnung wurde storniert.', 'success');
     setTimeout(loadAdminInvoices, 500);
 }
 
 async function deleteInvoice(invoiceId) {
-    if (!confirm('Rechnung wirklich unwiderruflich löschen?')) return;
+    const confirmed = await showConfirm('Rechnung wirklich unwiderruflich löschen?', {
+        title: 'Rechnung löschen',
+        danger: true,
+        confirmText: 'Löschen'
+    });
+    if (!confirmed) return;
 
     await nuiFetch('deleteInvoice', { invoiceId });
     closeModal();
+    showToast('Rechnung wurde gelöscht.', 'success');
     setTimeout(loadAdminInvoices, 500);
 }
 
@@ -619,7 +639,7 @@ function loadJobSettingsForm() {
 async function saveJobSettings() {
     const jobName = document.getElementById('job-select').value;
     if (!jobName) {
-        alert('Bitte wähle einen Job aus.');
+        showToast('Bitte wähle einen Job aus.', 'warning');
         return;
     }
 
@@ -639,14 +659,26 @@ async function saveJobSettings() {
         tax_rate: parseFloat(document.getElementById('job-tax-rate').value)
     });
 
+    showToast('Job-Einstellungen gespeichert.', 'success');
     setTimeout(loadJobsTab, 500);
 }
 
 async function deleteJobSettings() {
     const jobName = document.getElementById('job-select').value;
-    if (!jobName || !confirm(`Einstellungen für "${jobName}" wirklich löschen?`)) return;
+    if (!jobName) {
+        showToast('Bitte wähle einen Job aus.', 'warning');
+        return;
+    }
+
+    const confirmed = await showConfirm(`Einstellungen für "${jobName}" wirklich löschen?`, {
+        title: 'Job-Einstellungen löschen',
+        danger: true,
+        confirmText: 'Löschen'
+    });
+    if (!confirmed) return;
 
     await nuiFetch('deleteJobSettings', { jobName });
+    showToast('Job-Einstellungen gelöscht.', 'success');
     setTimeout(loadJobsTab, 500);
 }
 
@@ -683,7 +715,7 @@ function loadSocietyInfoForm() {
 async function saveSocietyInfo() {
     const societyName = document.getElementById('society-select').value;
     if (!societyName) {
-        alert('Bitte wähle eine Firma aus.');
+        showToast('Bitte wähle eine Firma aus.', 'warning');
         return;
     }
 
@@ -696,14 +728,26 @@ async function saveSocietyInfo() {
         invoice_prefix: document.getElementById('society-invoice-prefix').value || 'RE'
     });
 
+    showToast('Firmendaten gespeichert.', 'success');
     setTimeout(loadSocietiesTab, 500);
 }
 
 async function deleteSocietyInfo() {
     const societyName = document.getElementById('society-select').value;
-    if (!societyName || !confirm(`Firmendaten für "${societyName}" wirklich löschen?`)) return;
+    if (!societyName) {
+        showToast('Bitte wähle eine Firma aus.', 'warning');
+        return;
+    }
+
+    const confirmed = await showConfirm(`Firmendaten für "${societyName}" wirklich löschen?`, {
+        title: 'Firmendaten löschen',
+        danger: true,
+        confirmText: 'Löschen'
+    });
+    if (!confirmed) return;
 
     await nuiFetch('deleteSocietyInfo', { societyName });
+    showToast('Firmendaten gelöscht.', 'success');
     setTimeout(loadSocietiesTab, 500);
 }
 
@@ -750,14 +794,19 @@ async function saveGlobalSettings() {
     };
 
     await nuiFetch('saveGlobalSettings', settings);
+    showToast('Globale Einstellungen gespeichert.', 'success');
 }
 
 // Initial Icons beim Laden
 document.addEventListener('DOMContentLoaded', injectIcons);
 
-// ESC-Taste
+// ESC-Taste (Dialoge zuerst schließen)
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+        if (isDialogOpen()) {
+            closeDialog(null);
+            return;
+        }
         if (!document.getElementById('modal-invoice').classList.contains('hidden')) {
             closeModal();
         } else if (!document.getElementById('modal-edit').classList.contains('hidden')) {

@@ -812,6 +812,124 @@ textarea {
 
 .payment-buttons .btn { flex: 1; }
 
+/* Ingame-Dialoge */
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    backdrop-filter: blur(3px);
+}
+
+.dialog-box {
+    width: 400px;
+    max-width: 92vw;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: var(--shadow);
+    text-align: center;
+}
+
+.dialog-icon-wrap {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 14px;
+}
+
+.dialog-type-info { background: var(--info-soft); color: var(--info); }
+.dialog-type-warning { background: var(--warning-soft); color: var(--warning); }
+.dialog-type-danger { background: var(--danger-soft); color: var(--danger); }
+.dialog-type-success { background: var(--success-soft); color: var(--success); }
+.dialog-type-prompt { background: var(--accent-soft); color: var(--accent); }
+
+.dialog-title {
+    font-size: 17px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.dialog-message {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.dialog-input {
+    margin-bottom: 16px;
+    text-align: left;
+}
+
+.dialog-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+}
+
+.dialog-actions .btn {
+    flex: 1;
+    max-width: 160px;
+}
+
+/* Toast-Benachrichtigungen */
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 300;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.toast {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow);
+    min-width: 260px;
+    max-width: 380px;
+    opacity: 0;
+    transform: translateX(20px);
+    transition: all 0.25s ease;
+    pointer-events: auto;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.toast-icon {
+    display: flex;
+    flex-shrink: 0;
+}
+
+.toast-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    line-height: 1.4;
+}
+
+.toast-info { border-left: 3px solid var(--info); }
+.toast-success { border-left: 3px solid var(--success); }
+.toast-warning { border-left: 3px solid var(--warning); }
+.toast-error { border-left: 3px solid var(--danger); }
+
 @media (max-width: 800px) {
     .stats-grid { grid-template-columns: repeat(2, 1fr); }
     .admin-sidebar { width: 56px; padding: 10px 6px; }

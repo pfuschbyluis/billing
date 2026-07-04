@@ -12,7 +12,7 @@ local currentMode = nil -- 'player', 'admin', 'create'
 -- Hilfsfunktionen
 -- ============================================================
 
---- Öffnet die NUI
+--- Öffnet die NUI (Ingame-Overlay, kein externer Browser)
 ---@param mode string
 ---@param data table|nil
 local function OpenUI(mode, data)
@@ -20,7 +20,15 @@ local function OpenUI(mode, data)
 
     isUIOpen = true
     currentMode = mode
+
+    -- Fokus und Mauszeiger ins Spiel-Overlay legen
     SetNuiFocus(true, true)
+
+    -- Spieler-Steuerung während UI pausieren
+    local ped = PlayerPedId()
+    if ped and ped ~= 0 then
+        FreezeEntityPosition(ped, true)
+    end
 
     SendNUIMessage({
         action = 'open',
@@ -36,6 +44,12 @@ local function CloseUI()
     isUIOpen = false
     currentMode = nil
     SetNuiFocus(false, false)
+
+    -- Spieler wieder freigeben
+    local ped = PlayerPedId()
+    if ped and ped ~= 0 then
+        FreezeEntityPosition(ped, false)
+    end
 
     SendNUIMessage({
         action = 'close'
@@ -254,22 +268,41 @@ end, false)
 
 CreateThread(function()
     while true do
-        Wait(0)
         if isUIOpen then
+            Wait(0)
+
+            -- Kamera und Bewegung blockieren
             DisableControlAction(0, 1, true)   -- LookLeftRight
             DisableControlAction(0, 2, true)   -- LookUpDown
-            DisableControlAction(0, 142, true) -- MeleeAttackAlternate
-            DisableControlAction(0, 18, true)  -- Enter
+            DisableControlAction(0, 24, true)  -- Attack
+            DisableControlAction(0, 25, true)  -- Aim
+            DisableControlAction(0, 37, true)  -- Weapon Wheel
+            DisableControlAction(0, 47, true)  -- Detonate
+            DisableControlAction(0, 58, true)  -- Talk
+            DisableControlAction(0, 140, true) -- Melee Light
+            DisableControlAction(0, 141, true) -- Melee Heavy
+            DisableControlAction(0, 142, true) -- MeleeAlternate
+            DisableControlAction(0, 143, true) -- Melee Block
+            DisableControlAction(0, 18, true)   -- Enter
             DisableControlAction(0, 322, true) -- ESC
             DisableControlAction(0, 106, true) -- VehicleMouseControlOverride
+            DisableControlAction(0, 200, true) -- Pause Menu
+            DisableControlAction(0, 245, true) -- Chat
 
+            -- ESC zum Schließen (wird auch in NUI behandelt)
             if IsDisabledControlJustReleased(0, 322) then
-                CloseUI()
+                SendNUIMessage({ action = 'escape' })
             end
         else
             Wait(500)
         end
     end
+end)
+
+-- ESC aus NUI empfangen
+RegisterNUICallback('escape', function(_, cb)
+    CloseUI()
+    cb('ok')
 end)
 
 -- ============================================================
