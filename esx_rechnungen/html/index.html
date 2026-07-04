@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESX Rechnungssystem</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app" class="hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">📄</div>
+                <div>
+                    <h1 id="header-title">Rechnungssystem</h1>
+                    <p id="header-subtitle" class="subtitle">ESX Legacy</p>
+                </div>
+            </div>
+            <button class="btn-close" onclick="closeUI()" title="Schließen (ESC)">✕</button>
+        </header>
+
+        <!-- Navigation (Admin) -->
+        <nav id="admin-nav" class="nav hidden">
+            <button class="nav-btn active" data-tab="invoices" onclick="switchTab('invoices')">📋 Rechnungen</button>
+            <button class="nav-btn" data-tab="jobs" onclick="switchTab('jobs')">💼 Jobs</button>
+            <button class="nav-btn" data-tab="societies" onclick="switchTab('societies')">🏢 Firmen</button>
+            <button class="nav-btn" data-tab="settings" onclick="switchTab('settings')">⚙️ Einstellungen</button>
+        </nav>
+
+        <!-- Spieler-Ansicht -->
+        <div id="view-player" class="view hidden">
+            <div class="filter-bar">
+                <button class="filter-btn active" data-filter="all" onclick="filterInvoices('all')">Alle</button>
+                <button class="filter-btn" data-filter="open" onclick="filterInvoices('open')">Offen</button>
+                <button class="filter-btn" data-filter="paid" onclick="filterInvoices('paid')">Bezahlt</button>
+                <button class="filter-btn" data-filter="overdue" onclick="filterInvoices('overdue')">Überfällig</button>
+            </div>
+            <div id="player-invoices" class="invoice-list"></div>
+        </div>
+
+        <!-- Rechnung erstellen -->
+        <div id="view-create" class="view hidden">
+            <form id="create-form" class="form" onsubmit="submitCreateInvoice(event)">
+                <div class="form-group">
+                    <label>Empfängertyp</label>
+                    <select id="create-recipient-type" onchange="onRecipientTypeChange()">
+                        <option value="player">Spieler</option>
+                        <option value="society">Firma / Society</option>
+                    </select>
+                </div>
+
+                <div id="create-player-select" class="form-group">
+                    <label>Spieler auswählen</label>
+                    <select id="create-target-id">
+                        <option value="">-- Spieler wählen --</option>
+                    </select>
+                </div>
+
+                <div id="create-society-select" class="form-group hidden">
+                    <label>Firma auswählen</label>
+                    <select id="create-society-name">
+                        <option value="">-- Firma wählen --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Rechnungsgrund</label>
+                    <input type="text" id="create-reason" placeholder="z.B. Reparatur, Behandlung, Dienstleistung..." maxlength="500" required>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Netto-Betrag (€)</label>
+                        <input type="number" id="create-net-amount" min="1" step="0.01" placeholder="0.00" required oninput="updateTaxPreview()">
+                    </div>
+                    <div class="form-group">
+                        <label>Steuersatz (%)</label>
+                        <input type="number" id="create-tax-rate" min="0" max="100" step="0.1" oninput="updateTaxPreview()">
+                    </div>
+                </div>
+
+                <div id="tax-preview" class="tax-preview">
+                    <div class="tax-row"><span>Netto:</span><span id="preview-net">0,00 €</span></div>
+                    <div class="tax-row"><span>MwSt.:</span><span id="preview-tax">0,00 €</span></div>
+                    <div class="tax-row total"><span>Brutto:</span><span id="preview-gross">0,00 €</span></div>
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-full">Rechnung ausstellen</button>
+            </form>
+        </div>
+
+        <!-- Admin: Rechnungen -->
+        <div id="view-admin-invoices" class="view hidden">
+            <div class="admin-toolbar">
+                <input type="text" id="admin-search" placeholder="Suche nach Rechnungsnr., Name..." oninput="searchAdminInvoices()">
+                <button class="btn btn-secondary" onclick="loadAdminInvoices()">🔄 Aktualisieren</button>
+            </div>
+            <div id="admin-invoices" class="invoice-list"></div>
+        </div>
+
+        <!-- Admin: Jobs -->
+        <div id="view-admin-jobs" class="view hidden">
+            <div class="admin-toolbar">
+                <select id="job-select" onchange="loadJobSettingsForm()">
+                    <option value="">-- Job auswählen oder neu --</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveJobSettings()">💾 Speichern</button>
+                <button class="btn btn-danger" onclick="deleteJobSettings()">🗑️ Löschen</button>
+            </div>
+            <form id="job-settings-form" class="form">
+                <input type="hidden" id="job-name">
+
+                <div class="form-section">
+                    <h3>Berechtigungen</h3>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label"><input type="checkbox" id="job-can-issue"> Rechnungen schreiben dürfen</label>
+                        <label class="checkbox-label"><input type="checkbox" id="job-can-issue-player" checked> An Spieler ausstellen</label>
+                        <label class="checkbox-label"><input type="checkbox" id="job-can-issue-society"> An Firmen ausstellen</label>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Beträge & Entfernung</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Maximaler Rechnungsbetrag (€)</label>
+                            <input type="number" id="job-max-amount" value="10000" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Maximale Entfernung (m)</label>
+                            <input type="number" id="job-max-distance" value="5" min="0" step="0.5">
+                        </div>
+                    </div>
+                    <label class="checkbox-label"><input type="checkbox" id="job-require-proximity" checked> Nur in der Nähe ausstellen</label>
+                </div>
+
+                <div class="form-section">
+                    <h3>Zahlung</h3>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label"><input type="checkbox" id="job-payment-bank" checked> Bankzahlung erlaubt</label>
+                        <label class="checkbox-label"><input type="checkbox" id="job-payment-cash" checked> Barzahlung erlaubt</label>
+                    </div>
+                    <div class="form-group">
+                        <label>Geldziel</label>
+                        <select id="job-money-destination">
+                            <option value="society">An die Society / Firma</option>
+                            <option value="employee">An den Mitarbeiter</option>
+                            <option value="split">Prozentual aufteilen</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Society-Anteil (%)</label>
+                            <input type="number" id="job-society-percent" value="70" min="0" max="100">
+                        </div>
+                        <div class="form-group">
+                            <label>Mitarbeiter-Anteil (%)</label>
+                            <input type="number" id="job-employee-percent" value="30" min="0" max="100">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Steuer</h3>
+                    <div class="form-group">
+                        <label>Steuersatz für diesen Job (%)</label>
+                        <input type="number" id="job-tax-rate" value="19" min="0" max="100" step="0.1">
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <!-- Admin: Firmen -->
+        <div id="view-admin-societies" class="view hidden">
+            <div class="admin-toolbar">
+                <select id="society-select" onchange="loadSocietyInfoForm()">
+                    <option value="">-- Firma auswählen oder neu --</option>
+                </select>
+                <button class="btn btn-primary" onclick="saveSocietyInfo()">💾 Speichern</button>
+                <button class="btn btn-danger" onclick="deleteSocietyInfo()">🗑️ Löschen</button>
+            </div>
+            <form id="society-info-form" class="form">
+                <input type="hidden" id="society-name">
+
+                <div class="form-group">
+                    <label>Firmenname</label>
+                    <input type="text" id="society-company-name" placeholder="z.B. Los Santos Medical Center">
+                </div>
+                <div class="form-group">
+                    <label>Firmenadresse</label>
+                    <textarea id="society-company-address" rows="3" placeholder="Straße, PLZ, Stadt"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Steuernummer</label>
+                        <input type="text" id="society-tax-id" placeholder="z.B. 12/345/67890">
+                    </div>
+                    <div class="form-group">
+                        <label>Umsatzsteuer-ID</label>
+                        <input type="text" id="society-vat-id" placeholder="z.B. DE123456789">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Rechnungspräfix</label>
+                    <input type="text" id="society-invoice-prefix" value="RE" maxlength="10">
+                </div>
+            </form>
+        </div>
+
+        <!-- Admin: Einstellungen -->
+        <div id="view-admin-settings" class="view hidden">
+            <form id="global-settings-form" class="form">
+                <div class="form-section">
+                    <h3>Discord-Logging</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="set-discord-enabled"> Discord-Logs aktiviert</label>
+                    <div class="form-group">
+                        <label>Discord-Webhook URL</label>
+                        <input type="url" id="set-discord-webhook" placeholder="https://discord.com/api/webhooks/...">
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Steuersystem</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="set-tax-enabled" checked> Steuern aktiviert</label>
+                    <div class="form-group">
+                        <label>Standard-Steuersatz (%)</label>
+                        <input type="number" id="set-default-tax-rate" value="19" min="0" max="100" step="0.1">
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Rechnungsnummern</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="set-auto-invoice-numbers" checked> Automatische Rechnungsnummern</label>
+                    <div class="form-group">
+                        <label>Standard-Präfix</label>
+                        <input type="text" id="set-invoice-prefix" value="RE" maxlength="10">
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Zahlungsfristen & Mahngebühren</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Zahlungsfrist (Tage)</label>
+                            <input type="number" id="set-payment-deadline-days" value="14" min="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Mahngebühr (€)</label>
+                            <input type="number" id="set-reminder-fee" value="25" min="0" step="0.01">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-section">
+                    <h3>Spieler-Benachrichtigungen</h3>
+                    <label class="checkbox-label"><input type="checkbox" id="set-show-unpaid-on-login" checked> Unbezahlte Rechnungen beim Einloggen anzeigen</label>
+                </div>
+
+                <div class="form-section">
+                    <h3>Admin-Berechtigungen</h3>
+                    <div class="checkbox-grid">
+                        <label class="checkbox-label"><input type="checkbox" id="set-admin-can-view" checked> Rechnungen einsehen</label>
+                        <label class="checkbox-label"><input type="checkbox" id="set-admin-can-edit" checked> Rechnungen bearbeiten</label>
+                        <label class="checkbox-label"><input type="checkbox" id="set-admin-can-cancel" checked> Rechnungen stornieren</label>
+                        <label class="checkbox-label"><input type="checkbox" id="set-admin-can-delete" checked> Rechnungen löschen</label>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-full" onclick="saveGlobalSettings()">💾 Alle Einstellungen speichern</button>
+            </form>
+        </div>
+
+        <!-- Rechnungsdetail-Modal -->
+        <div id="modal-invoice" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="modal-invoice-title">Rechnungsdetails</h2>
+                    <button class="btn-close" onclick="closeModal()">✕</button>
+                </div>
+                <div id="modal-invoice-body" class="modal-body"></div>
+                <div id="modal-invoice-actions" class="modal-actions"></div>
+            </div>
+        </div>
+
+        <!-- Bearbeiten-Modal (Admin) -->
+        <div id="modal-edit" class="modal hidden">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Rechnung bearbeiten</h2>
+                    <button class="btn-close" onclick="closeEditModal()">✕</button>
+                </div>
+                <form id="edit-form" class="modal-body form" onsubmit="submitEditInvoice(event)">
+                    <input type="hidden" id="edit-invoice-id">
+                    <div class="form-group">
+                        <label>Rechnungsgrund</label>
+                        <input type="text" id="edit-reason" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Netto-Betrag (€)</label>
+                            <input type="number" id="edit-net-amount" min="0" step="0.01" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Steuersatz (%)</label>
+                            <input type="number" id="edit-tax-rate" min="0" max="100" step="0.1">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="edit-payment-status">
+                            <option value="open">Offen</option>
+                            <option value="paid">Bezahlt</option>
+                            <option value="overdue">Überfällig</option>
+                            <option value="cancelled">Storniert</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Speichern</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
