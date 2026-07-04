@@ -29,15 +29,24 @@ Deutsches Rechnungssystem für **FiveM ESX Legacy** mit Ingame-Adminpanel, Steue
    resources/[esx]/esx_rechnungen/
    ```
 
-2. SQL-Datei importieren:
-   ```
-   esx_rechnungen/sql/install.sql
-   ```
-
-3. In `server.cfg` eintragen:
+2. In `server.cfg` eintragen:
    ```
    ensure esx_rechnungen
    ```
+
+3. Server starten – die SQL-Tabellen werden **automatisch** beim ersten Start angelegt.
+   In der Live-Console erscheint dazu Feedback, z. B.:
+   ```
+   [esx_rechnungen] Datenbank-Installation wird gestartet...
+   [esx_rechnungen] [1/6] Tabelle 'rechnungen_settings' ... OK
+   [esx_rechnungen] Datenbank-Installation abgeschlossen (6/6 erfolgreich).
+   ```
+
+   Die automatische Installation kann in der `config.lua` deaktiviert werden:
+   ```lua
+   Config.AutoInstallSQL = false
+   ```
+   Dann muss `sql/install.sql` manuell importiert werden.
 
 4. Im Adminpanel Jobs konfigurieren, die Rechnungen ausstellen dürfen.
 
@@ -118,6 +127,7 @@ exports['esx_rechnungen']:OpenCreateInvoice()
 Die `config.lua` enthält nur grundlegende Einstellungen:
 - Framework- und Datenbank-Auswahl
 - Debug-Modus
+- Automatische SQL-Installation (`Config.AutoInstallSQL`)
 - Admin-Gruppen
 - Command-Namen
 

@@ -1,7 +1,6 @@
--- ============================================================
 -- ESX Rechnungssystem - Datenbankinstallation
--- Führe diese Datei in deiner MySQL-Datenbank aus
--- ============================================================
+-- Wird beim Script-Start automatisch ausgeführt (Config.AutoInstallSQL)
+-- Kann bei Bedarf weiterhin manuell importiert werden
 
 -- Globale Einstellungen (Key-Value)
 CREATE TABLE IF NOT EXISTS `rechnungen_settings` (

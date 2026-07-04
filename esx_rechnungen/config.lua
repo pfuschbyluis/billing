@@ -4,6 +4,7 @@ Config = {}
 Config.Framework = 'esx'           -- Framework: esx
 Config.Database = 'oxmysql'        -- Datenbank: oxmysql oder mysql-async
 Config.Debug = false               -- Debug-Ausgaben in der Konsole
+Config.AutoInstallSQL = true       -- SQL beim Start automatisch ausführen (sql/install.sql)
 
 -- Admin-Berechtigungen (Gruppen aus ESX)
 Config.AdminGroups = {

@@ -14,6 +14,114 @@ local SocietyInfo = {}
 -- Hilfsfunktionen
 -- ============================================================
 
+--- Konsolen-Ausgabe mit Farbe für die Live-Console
+---@param level string 'info' | 'success' | 'error'
+---@param message string
+local function ConsoleLog(level, message)
+    local color = '^7'
+    if level == 'success' then color = '^2'
+    elseif level == 'error' then color = '^1'
+    elseif level == 'info' then color = '^3'
+    end
+
+    print(('%s[esx_rechnungen]^7 %s'):format(color, message))
+end
+
+--- Extrahiert einen lesbaren Namen aus einem SQL-Statement
+---@param statement string
+---@return string
+local function GetStatementLabel(statement)
+    local tableName = statement:match('CREATE TABLE IF NOT EXISTS [`"]?(%w+)[`"]?')
+    if tableName then
+        return ("Tabelle '%s'"):format(tableName)
+    end
+
+    if statement:match('^%s*INSERT') then
+        return 'Standard-Einstellungen'
+    end
+
+    return 'SQL-Statement'
+end
+
+--- Teilt SQL-Datei in einzelne Statements auf
+---@param sql string
+---@return table
+local function ParseSQLStatements(sql)
+    local statements = {}
+    local current = ''
+
+    for line in sql:gmatch('[^\r\n]+') do
+        local trimmed = line:match('^%s*(.-)%s*$')
+        if trimmed ~= '' and not trimmed:match('^%-%-') then
+            current = current .. ' ' .. trimmed
+            if trimmed:sub(-1) == ';' then
+                local statement = current:sub(1, -2):match('^%s*(.-)%s*$')
+                if statement and statement ~= '' then
+                    table.insert(statements, statement)
+                end
+                current = ''
+            end
+        end
+    end
+
+    return statements
+end
+
+--- Führt sql/install.sql automatisch aus
+---@return boolean success
+local function InstallDatabase()
+    if not Config.AutoInstallSQL then
+        ConsoleLog('info', 'Automatische SQL-Installation ist deaktiviert (Config.AutoInstallSQL = false).')
+        return true
+    end
+
+    local resourceName = GetCurrentResourceName()
+    local sqlContent = LoadResourceFile(resourceName, 'sql/install.sql')
+
+    if not sqlContent or sqlContent == '' then
+        ConsoleLog('error', 'SQL-Datei nicht gefunden: sql/install.sql')
+        return false
+    end
+
+    local statements = ParseSQLStatements(sqlContent)
+    if #statements == 0 then
+        ConsoleLog('error', 'Keine gültigen SQL-Statements in sql/install.sql gefunden.')
+        return false
+    end
+
+    ConsoleLog('info', '============================================================')
+    ConsoleLog('info', 'Datenbank-Installation wird gestartet...')
+    ConsoleLog('info', ('Gefundene SQL-Statements: %d'):format(#statements))
+
+    local successCount = 0
+    local failCount = 0
+
+    for index, statement in ipairs(statements) do
+        local label = GetStatementLabel(statement)
+        local ok, err = pcall(function()
+            MySQL.query.await(statement)
+        end)
+
+        if ok then
+            successCount = successCount + 1
+            ConsoleLog('success', ('[%d/%d] %s ... OK'):format(index, #statements, label))
+        else
+            failCount = failCount + 1
+            ConsoleLog('error', ('[%d/%d] %s ... FEHLER: %s'):format(index, #statements, label, tostring(err)))
+        end
+    end
+
+    ConsoleLog('info', '------------------------------------------------------------')
+    if failCount == 0 then
+        ConsoleLog('success', ('Datenbank-Installation abgeschlossen (%d/%d erfolgreich).'):format(successCount, #statements))
+    else
+        ConsoleLog('error', ('Datenbank-Installation mit Fehlern beendet (%d OK, %d FEHLER).'):format(successCount, failCount))
+    end
+    ConsoleLog('info', '============================================================')
+
+    return failCount == 0
+end
+
 --- Debug-Ausgabe nur wenn Config.Debug aktiv
 local function DebugPrint(...)
     if Config.Debug then
@@ -253,16 +361,23 @@ local function UpdateOverdueInvoices()
 end
 
 -- ============================================================
--- Serverstart: Einstellungen laden
+-- Serverstart: Datenbank + Einstellungen laden
 -- ============================================================
 
-CreateThread(function()
-    Wait(1000)
-    LoadGlobalSettings()
-    LoadJobSettings()
-    LoadSocietyInfo()
-    UpdateOverdueInvoices()
-    print('[esx_rechnungen] Rechnungssystem erfolgreich geladen.')
+MySQL.ready(function()
+    CreateThread(function()
+        local dbOk = InstallDatabase()
+        if not dbOk then
+            ConsoleLog('error', 'Script läuft weiter, aber einige Datenbank-Tabellen fehlen möglicherweise!')
+        end
+
+        LoadGlobalSettings()
+        LoadJobSettings()
+        LoadSocietyInfo()
+        UpdateOverdueInvoices()
+
+        ConsoleLog('success', 'Rechnungssystem erfolgreich geladen und einsatzbereit.')
+    end)
 end)
 
 -- Periodisch überfällige Rechnungen prüfen (alle 30 Minuten)
